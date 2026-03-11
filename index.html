@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>频率编曲器 - Frequency Music Composer</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: #0a0e17;
+  color: #e0e6f0;
+  min-height: 100vh;
+}
+
+.app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 20px;
+}
+
+h1 {
+  text-align: center;
+  font-size: 28px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #6ee7b7, #3b82f6, #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 6px;
+}
+
+.subtitle {
+  text-align: center;
+  color: #64748b;
+  font-size: 14px;
+  margin-bottom: 28px;
+}
+
+/* Sections */
+.section {
+  background: #111827;
+  border: 1px solid #1e293b;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #94a3b8;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Note table */
+.note-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.note-table th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #1e293b;
+}
+
+.note-table td {
+  padding: 4px 4px;
+}
+
+.note-table input {
+  width: 100%;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  color: #e2e8f0;
+  padding: 8px 10px;
+  font-size: 14px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  transition: border-color 0.2s;
+}
+
+.note-table input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+}
+
+.note-table input::placeholder {
+  color: #334155;
+}
+
+.row-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.btn-icon {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  transition: all 0.15s;
+}
+
+.btn-remove {
+  background: rgba(239,68,68,0.1);
+  color: #f87171;
+}
+.btn-remove:hover { background: rgba(239,68,68,0.25); }
+
+.btn-dup {
+  background: rgba(59,130,246,0.1);
+  color: #60a5fa;
+}
+.btn-dup:hover { background: rgba(59,130,246,0.25); }
+
+/* Buttons */
+.btn-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.btn {
+  padding: 9px 18px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  color: white;
+}
+.btn-primary:hover { filter: brightness(1.15); }
+
+.btn-success {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+}
+.btn-success:hover { filter: brightness(1.15); }
+
+.btn-secondary {
+  background: #1e293b;
+  color: #94a3b8;
+}
+.btn-secondary:hover { background: #2d3a4f; color: #cbd5e1; }
+
+.btn-danger {
+  background: rgba(239,68,68,0.15);
+  color: #f87171;
+}
+.btn-danger:hover { background: rgba(239,68,68,0.3); }
+
+.btn-warn {
+  background: rgba(245,158,11,0.15);
+  color: #fbbf24;
+}
+.btn-warn:hover { background: rgba(245,158,11,0.3); }
+
+/* Waveform selector */
+.wave-selector {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.wave-btn {
+  padding: 6px 14px;
+  border: 1px solid #1e293b;
+  border-radius: 20px;
+  background: transparent;
+  color: #64748b;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.wave-btn.active {
+  border-color: #3b82f6;
+  color: #60a5fa;
+  background: rgba(59,130,246,0.1);
+}
+
+/* Preset chips */
+.preset-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.preset-chip {
+  padding: 7px 16px;
+  border: 1px solid #1e293b;
+  border-radius: 20px;
+  background: #0f172a;
+  color: #94a3b8;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.preset-chip:hover {
+  border-color: #6366f1;
+  color: #a5b4fc;
+  background: rgba(99,102,241,0.08);
+}
+
+/* Timeline canvas */
+#timeline {
+  width: 100%;
+  height: 180px;
+  border-radius: 8px;
+  background: #0f172a;
+  display: block;
+}
+
+/* Volume / BPM controls */
+.controls-row {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.control-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.control-group label {
+  font-size: 13px;
+  color: #64748b;
+  min-width: 40px;
+}
+
+.control-group input[type="range"] {
+  width: 120px;
+  accent-color: #3b82f6;
+}
+
+.control-group .val {
+  font-size: 13px;
+  color: #94a3b8;
+  font-family: monospace;
+  min-width: 36px;
+}
+
+/* JSON editor */
+#jsonEditor {
+  width: 100%;
+  min-height: 120px;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  color: #a5f3fc;
+  padding: 12px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 13px;
+  resize: vertical;
+}
+
+#jsonEditor:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+/* Freq reference */
+.freq-ref {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 4px;
+  font-size: 12px;
+  font-family: monospace;
+}
+
+.freq-ref span {
+  color: #475569;
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.freq-ref span:hover {
+  background: #1e293b;
+  color: #94a3b8;
+}
+
+/* Playing indicator */
+.playing-indicator {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  color: #10b981;
+  font-size: 14px;
+}
+
+.playing-indicator.active { display: inline-flex; }
+
+.dot-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .app { padding: 16px 10px; }
+  h1 { font-size: 22px; }
+  .controls-row { gap: 12px; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>频率编曲器</h1>
+  <p class="subtitle">输入频率 / 开始时间 / 持续时间，用纯数字自由编曲</p>
+
+  <!-- Presets -->
+  <div class="section">
+    <div class="section-title">预设示例</div>
+    <div class="preset-chips">
+      <span class="preset-chip" onclick="loadPreset('twinkle')">小星星</span>
+      <span class="preset-chip" onclick="loadPreset('scale')">C大调音阶</span>
+      <span class="preset-chip" onclick="loadPreset('ode')">欢乐颂</span>
+      <span class="preset-chip" onclick="loadPreset('chord')">和弦演示</span>
+      <span class="preset-chip" onclick="loadPreset('canon')">卡农片段</span>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="section">
+    <div class="controls-row">
+      <div class="control-group">
+        <label>音色</label>
+        <div class="wave-selector" id="waveSelector">
+          <button class="wave-btn active" data-wave="sine">Sine 正弦</button>
+          <button class="wave-btn" data-wave="triangle">Triangle 三角</button>
+          <button class="wave-btn" data-wave="square">Square 方波</button>
+          <button class="wave-btn" data-wave="sawtooth">Sawtooth 锯齿</button>
+        </div>
+      </div>
+      <div class="control-group">
+        <label>音量</label>
+        <input type="range" id="volumeSlider" min="0" max="100" value="60">
+        <span class="val" id="volumeVal">60%</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Note Table -->
+  <div class="section">
+    <div class="section-title">音符列表
+      <span style="flex:1"></span>
+      <span class="playing-indicator" id="playingIndicator"><span class="dot-pulse"></span> 播放中...</span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="note-table" id="noteTable">
+        <thead>
+          <tr>
+            <th style="width:40px">#</th>
+            <th>频率 Hz</th>
+            <th>开始时间 s</th>
+            <th>持续时间 s</th>
+            <th style="width:80px"></th>
+          </tr>
+        </thead>
+        <tbody id="noteBody"></tbody>
+      </table>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="addRow()">+ 添加音符</button>
+      <button class="btn btn-secondary" onclick="addRows(5)">+ 批量添加5个</button>
+      <button class="btn btn-danger" onclick="clearAll()">清空全部</button>
+    </div>
+  </div>
+
+  <!-- Playback -->
+  <div class="section">
+    <div class="btn-row" style="margin-top:0">
+      <button class="btn btn-success" onclick="playMelody()">&#9654; 播放</button>
+      <button class="btn btn-danger" onclick="stopMelody()">&#9632; 停止</button>
+      <button class="btn btn-warn" onclick="exportWAV()">&#11015; 导出 WAV</button>
+    </div>
+  </div>
+
+  <!-- Timeline -->
+  <div class="section">
+    <div class="section-title">时间线可视化</div>
+    <canvas id="timeline"></canvas>
+  </div>
+
+  <!-- JSON Editor -->
+  <div class="section">
+    <div class="section-title">JSON 编辑器（高级）</div>
+    <textarea id="jsonEditor" spellcheck="false"></textarea>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="importJSON()">导入 JSON</button>
+      <button class="btn btn-secondary" onclick="exportJSON()">导出到 JSON</button>
+    </div>
+  </div>
+
+  <!-- Frequency Reference -->
+  <div class="section">
+    <div class="section-title">常用频率参考（点击复制）</div>
+    <div class="freq-ref" id="freqRef"></div>
+  </div>
+</div>
+
+<script>
+// ─── State ───
+let notes = [];
+let waveType = 'sine';
+let volume = 0.6;
+let audioCtx = null;
+let activeOscillators = [];
+let animFrame = null;
+
+// ─── Frequency reference ───
+const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+function noteFreq(note, octave) {
+  const idx = NOTE_NAMES.indexOf(note);
+  const semitones = (octave - 4) * 12 + (idx - 9);
+  return +(440 * Math.pow(2, semitones / 12)).toFixed(2);
+}
+
+function buildFreqRef() {
+  const el = document.getElementById('freqRef');
+  let html = '';
+  for (let oct = 3; oct <= 6; oct++) {
+    for (const n of NOTE_NAMES) {
+      const f = noteFreq(n, oct);
+      html += `<span onclick="navigator.clipboard.writeText('${f}')" title="点击复制">${n}${oct} = ${f}</span>`;
+    }
+  }
+  el.innerHTML = html;
+}
+
+// ─── Table management ───
+function addRow(freq = '', start = '', dur = '') {
+  notes.push({ freq, start, dur });
+  renderTable();
+}
+
+function addRows(n) {
+  for (let i = 0; i < n; i++) notes.push({ freq: '', start: '', dur: '' });
+  renderTable();
+}
+
+function removeRow(i) {
+  notes.splice(i, 1);
+  renderTable();
+}
+
+function dupRow(i) {
+  const n = notes[i];
+  notes.splice(i + 1, 0, { ...n });
+  renderTable();
+}
+
+function clearAll() {
+  notes = [];
+  renderTable();
+}
+
+function onInput(i, field, val) {
+  notes[i][field] = val;
+  drawTimeline();
+  syncJSON();
+}
+
+function renderTable() {
+  const tbody = document.getElementById('noteBody');
+  tbody.innerHTML = notes.map((n, i) => `
+    <tr>
+      <td style="color:#475569;font-size:13px;text-align:center">${i + 1}</td>
+      <td><input type="number" step="any" min="20" max="20000" placeholder="440" value="${n.freq}" oninput="onInput(${i},'freq',this.value)"></td>
+      <td><input type="number" step="any" min="0" placeholder="0.0" value="${n.start}" oninput="onInput(${i},'start',this.value)"></td>
+      <td><input type="number" step="any" min="0.01" placeholder="0.5" value="${n.dur}" oninput="onInput(${i},'dur',this.value)"></td>
+      <td>
+        <div class="row-actions">
+          <button class="btn-icon btn-dup" title="复制" onclick="dupRow(${i})">&#x2398;</button>
+          <button class="btn-icon btn-remove" title="删除" onclick="removeRow(${i})">&#x2715;</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+  drawTimeline();
+  syncJSON();
+}
+
+// ─── Waveform selector ───
+document.getElementById('waveSelector').addEventListener('click', e => {
+  const btn = e.target.closest('.wave-btn');
+  if (!btn) return;
+  document.querySelectorAll('.wave-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  waveType = btn.dataset.wave;
+});
+
+// ─── Volume ───
+document.getElementById('volumeSlider').addEventListener('input', e => {
+  volume = e.target.value / 100;
+  document.getElementById('volumeVal').textContent = e.target.value + '%';
+});
+
+// ─── Parse notes ───
+function getValidNotes() {
+  return notes
+    .map(n => ({
+      freq: parseFloat(n.freq),
+      start: parseFloat(n.start),
+      dur: parseFloat(n.dur)
+    }))
+    .filter(n => n.freq > 0 && n.start >= 0 && n.dur > 0);
+}
+
+// ─── Play ───
+function playMelody() {
+  stopMelody();
+  const valid = getValidNotes();
+  if (!valid.length) return;
+
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const masterGain = audioCtx.createGain();
+  masterGain.gain.value = volume;
+  masterGain.connect(audioCtx.destination);
+
+  const now = audioCtx.currentTime;
+  valid.forEach(n => {
+    const osc = audioCtx.createOscillator();
+    const env = audioCtx.createGain();
+    osc.type = waveType;
+    osc.frequency.value = n.freq;
+
+    // Smooth envelope to avoid clicks
+    env.gain.setValueAtTime(0, now + n.start);
+    env.gain.linearRampToValueAtTime(1, now + n.start + Math.min(0.02, n.dur * 0.1));
+    env.gain.setValueAtTime(1, now + n.start + n.dur - Math.min(0.02, n.dur * 0.1));
+    env.gain.linearRampToValueAtTime(0, now + n.start + n.dur);
+
+    osc.connect(env);
+    env.connect(masterGain);
+    osc.start(now + n.start);
+    osc.stop(now + n.start + n.dur + 0.05);
+    activeOscillators.push(osc);
+  });
+
+  // Playing indicator
+  const maxEnd = Math.max(...valid.map(n => n.start + n.dur));
+  document.getElementById('playingIndicator').classList.add('active');
+  setTimeout(() => {
+    document.getElementById('playingIndicator').classList.remove('active');
+  }, maxEnd * 1000 + 100);
+
+  // Animate timeline playhead
+  const startWall = performance.now();
+  function animatePlayhead() {
+    const elapsed = (performance.now() - startWall) / 1000;
+    drawTimeline(elapsed);
+    if (elapsed < maxEnd + 0.2) {
+      animFrame = requestAnimationFrame(animatePlayhead);
+    }
+  }
+  animFrame = requestAnimationFrame(animatePlayhead);
+}
+
+function stopMelody() {
+  if (animFrame) cancelAnimationFrame(animFrame);
+  document.getElementById('playingIndicator').classList.remove('active');
+  activeOscillators.forEach(o => { try { o.stop(); } catch(e) {} });
+  activeOscillators = [];
+  if (audioCtx) { audioCtx.close(); audioCtx = null; }
+  drawTimeline();
+}
+
+// ─── Export WAV ───
+function exportWAV() {
+  const valid = getValidNotes();
+  if (!valid.length) return;
+
+  const sampleRate = 44100;
+  const maxEnd = Math.max(...valid.map(n => n.start + n.dur));
+  const totalSamples = Math.ceil(maxEnd * sampleRate) + sampleRate * 0.1;
+  const buffer = new Float32Array(totalSamples);
+
+  valid.forEach(n => {
+    const startSample = Math.floor(n.start * sampleRate);
+    const durSamples = Math.floor(n.dur * sampleRate);
+    const attackSamples = Math.min(Math.floor(sampleRate * 0.02), Math.floor(durSamples * 0.1));
+    const releaseSamples = attackSamples;
+
+    for (let i = 0; i < durSamples; i++) {
+      const t = i / sampleRate;
+      let sample = 0;
+      const phase = 2 * Math.PI * n.freq * t;
+
+      switch (waveType) {
+        case 'sine': sample = Math.sin(phase); break;
+        case 'triangle': sample = 2 * Math.abs(2 * ((n.freq * t) % 1) - 1) - 1; break;
+        case 'square': sample = Math.sin(phase) >= 0 ? 1 : -1; break;
+        case 'sawtooth': sample = 2 * ((n.freq * t) % 1) - 1; break;
+      }
+
+      // Envelope
+      let env = 1;
+      if (i < attackSamples) env = i / attackSamples;
+      else if (i > durSamples - releaseSamples) env = (durSamples - i) / releaseSamples;
+
+      buffer[startSample + i] = (buffer[startSample + i] || 0) + sample * env * volume;
+    }
+  });
+
+  // Clamp
+  for (let i = 0; i < buffer.length; i++) {
+    buffer[i] = Math.max(-1, Math.min(1, buffer[i]));
+  }
+
+  // Encode WAV
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = sampleRate * numChannels * bitsPerSample / 8;
+  const blockAlign = numChannels * bitsPerSample / 8;
+  const dataSize = buffer.length * blockAlign;
+  const headerSize = 44;
+  const wav = new ArrayBuffer(headerSize + dataSize);
+  const view = new DataView(wav);
+
+  function writeStr(offset, str) {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  }
+
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeStr(36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  for (let i = 0; i < buffer.length; i++) {
+    const s = Math.max(-1, Math.min(1, buffer[i]));
+    view.setInt16(headerSize + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+
+  const blob = new Blob([wav], { type: 'audio/wav' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'melody.wav';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ─── Timeline visualization ───
+function drawTimeline(playhead = -1) {
+  const canvas = document.getElementById('timeline');
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width - 40;
+  canvas.height = 180;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const valid = getValidNotes();
+  if (!valid.length) {
+    ctx.fillStyle = '#334155';
+    ctx.font = '14px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('添加音符后此处显示时间线', canvas.width / 2, 90);
+    return;
+  }
+
+  const maxEnd = Math.max(...valid.map(n => n.start + n.dur));
+  const minFreq = Math.min(...valid.map(n => n.freq));
+  const maxFreq = Math.max(...valid.map(n => n.freq));
+  const freqRange = maxFreq - minFreq || 200;
+  const pad = { l: 55, r: 15, t: 15, b: 30 };
+  const w = canvas.width - pad.l - pad.r;
+  const h = canvas.height - pad.t - pad.b;
+
+  // Grid
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 5; i++) {
+    const x = pad.l + (w * i / 5);
+    ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, pad.t + h); ctx.stroke();
+    ctx.fillStyle = '#475569';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText((maxEnd * i / 5).toFixed(1) + 's', x, canvas.height - 8);
+  }
+
+  // Frequency axis
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + h - (h * i / 4);
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + w, y); ctx.stroke();
+    const f = minFreq - freqRange * 0.1 + (freqRange * 1.2) * i / 4;
+    ctx.fillStyle = '#475569';
+    ctx.fillText(f.toFixed(0) + 'Hz', pad.l - 6, y + 4);
+  }
+
+  // Colors for notes
+  const colors = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#f97316'];
+
+  valid.forEach((n, i) => {
+    const x = pad.l + (n.start / maxEnd) * w;
+    const bw = (n.dur / maxEnd) * w;
+    const yNorm = (n.freq - (minFreq - freqRange * 0.1)) / (freqRange * 1.2);
+    const y = pad.t + h - yNorm * h;
+
+    const color = colors[i % colors.length];
+    ctx.fillStyle = color + '40';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(x, y - 10, Math.max(bw, 3), 20, 4);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = color;
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(n.freq + 'Hz', x + 3, y - 14);
+  });
+
+  // Playhead
+  if (playhead >= 0) {
+    const px = pad.l + (playhead / maxEnd) * w;
+    ctx.strokeStyle = '#f43f5e';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(px, pad.t); ctx.lineTo(px, pad.t + h); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+// ─── JSON sync ───
+function syncJSON() {
+  const valid = notes.filter(n => n.freq || n.start || n.dur);
+  document.getElementById('jsonEditor').value = JSON.stringify(
+    valid.map(n => ({ freq: +n.freq || 0, start: +n.start || 0, dur: +n.dur || 0 })),
+    null, 2
+  );
+}
+
+function importJSON() {
+  try {
+    const data = JSON.parse(document.getElementById('jsonEditor').value);
+    if (!Array.isArray(data)) throw new Error('需要数组格式');
+    notes = data.map(n => ({
+      freq: n.freq != null ? String(n.freq) : '',
+      start: n.start != null ? String(n.start) : '',
+      dur: n.dur != null ? String(n.dur) : (n.duration != null ? String(n.duration) : '')
+    }));
+    renderTable();
+  } catch (e) {
+    alert('JSON 解析失败: ' + e.message);
+  }
+}
+
+function exportJSON() {
+  syncJSON();
+  const blob = new Blob([document.getElementById('jsonEditor').value], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'melody.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ─── Presets ───
+const PRESETS = {
+  twinkle: [
+    {freq:262,start:0,dur:0.4},{freq:262,start:0.5,dur:0.4},{freq:392,start:1,dur:0.4},{freq:392,start:1.5,dur:0.4},
+    {freq:440,start:2,dur:0.4},{freq:440,start:2.5,dur:0.4},{freq:392,start:3,dur:0.8},
+    {freq:349,start:4,dur:0.4},{freq:349,start:4.5,dur:0.4},{freq:330,start:5,dur:0.4},{freq:330,start:5.5,dur:0.4},
+    {freq:294,start:6,dur:0.4},{freq:294,start:6.5,dur:0.4},{freq:262,start:7,dur:0.8}
+  ],
+  scale: [
+    {freq:262,start:0,dur:0.4},{freq:294,start:0.5,dur:0.4},{freq:330,start:1,dur:0.4},{freq:349,start:1.5,dur:0.4},
+    {freq:392,start:2,dur:0.4},{freq:440,start:2.5,dur:0.4},{freq:494,start:3,dur:0.4},{freq:523,start:3.5,dur:0.8}
+  ],
+  ode: [
+    {freq:330,start:0,dur:0.4},{freq:330,start:0.5,dur:0.4},{freq:349,start:1,dur:0.4},{freq:392,start:1.5,dur:0.4},
+    {freq:392,start:2,dur:0.4},{freq:349,start:2.5,dur:0.4},{freq:330,start:3,dur:0.4},{freq:294,start:3.5,dur:0.4},
+    {freq:262,start:4,dur:0.4},{freq:262,start:4.5,dur:0.4},{freq:294,start:5,dur:0.4},{freq:330,start:5.5,dur:0.4},
+    {freq:330,start:6,dur:0.6},{freq:294,start:6.75,dur:0.2},{freq:294,start:7,dur:0.8}
+  ],
+  chord: [
+    {freq:262,start:0,dur:1.5},{freq:330,start:0,dur:1.5},{freq:392,start:0,dur:1.5},
+    {freq:349,start:2,dur:1.5},{freq:440,start:2,dur:1.5},{freq:523,start:2,dur:1.5},
+    {freq:392,start:4,dur:1.5},{freq:494,start:4,dur:1.5},{freq:587,start:4,dur:1.5}
+  ],
+  canon: [
+    {freq:523,start:0,dur:0.45},{freq:494,start:0.5,dur:0.45},{freq:523,start:1,dur:0.45},{freq:392,start:1.5,dur:0.45},
+    {freq:440,start:2,dur:0.45},{freq:330,start:2.5,dur:0.45},{freq:440,start:3,dur:0.45},{freq:494,start:3.5,dur:0.45},
+    {freq:523,start:4,dur:0.45},{freq:392,start:4.5,dur:0.45},{freq:440,start:5,dur:0.45},{freq:349,start:5.5,dur:0.45},
+    {freq:330,start:6,dur:0.45},{freq:262,start:6.5,dur:0.45},{freq:330,start:7,dur:0.45},{freq:392,start:7.5,dur:0.45}
+  ]
+};
+
+function loadPreset(name) {
+  notes = PRESETS[name].map(n => ({
+    freq: String(n.freq),
+    start: String(n.start),
+    dur: String(n.dur)
+  }));
+  renderTable();
+}
+
+// ─── Init ───
+buildFreqRef();
+loadPreset('twinkle');
+
+// Resize
+window.addEventListener('resize', () => drawTimeline());
+</script>
+</body>
+</html>
