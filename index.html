@@ -548,12 +548,16 @@ function getValidNotes() {
 }
 
 // ─── Play ───
-function playMelody() {
+async function playMelody() {
   stopMelody();
   const valid = getValidNotes();
   if (!valid.length) return;
 
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  // Mobile browsers require explicit resume() from user gesture
+  if (audioCtx.state === 'suspended') {
+    await audioCtx.resume();
+  }
   const masterGain = audioCtx.createGain();
   masterGain.gain.value = volume;
   masterGain.connect(audioCtx.destination);
