@@ -547,25 +547,47 @@ function getValidNotes() {
     .filter(n => n.freq > 0 && n.start >= 0 && n.dur > 0);
 }
 
+// ─── Audio context (reuse single instance for mobile compatibility) ───
+function getAudioCtx() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  // iOS Safari requires resume() in the synchronous user gesture call stack
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+  return audioCtx;
+}
+
+// Unlock audio on first touch/click (iOS requires playing a buffer from user gesture)
+function unlockAudio() {
+  const ctx = getAudioCtx();
+  const buf = ctx.createBuffer(1, 1, 22050);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(ctx.destination);
+  src.start(0);
+  document.removeEventListener('touchstart', unlockAudio);
+  document.removeEventListener('click', unlockAudio);
+}
+document.addEventListener('touchstart', unlockAudio, { once: true });
+document.addEventListener('click', unlockAudio, { once: true });
+
 // ─── Play ───
-async function playMelody() {
+function playMelody() {
   stopMelody();
   const valid = getValidNotes();
   if (!valid.length) return;
 
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  // Mobile browsers require explicit resume() from user gesture
-  if (audioCtx.state === 'suspended') {
-    await audioCtx.resume();
-  }
-  const masterGain = audioCtx.createGain();
+  const ctx = getAudioCtx();
+  const masterGain = ctx.createGain();
   masterGain.gain.value = volume;
-  masterGain.connect(audioCtx.destination);
+  masterGain.connect(ctx.destination);
 
-  const now = audioCtx.currentTime;
+  const now = ctx.currentTime;
   valid.forEach(n => {
-    const osc = audioCtx.createOscillator();
-    const env = audioCtx.createGain();
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
     osc.type = waveType;
     osc.frequency.value = n.freq;
 
@@ -606,7 +628,7 @@ function stopMelody() {
   document.getElementById('playingIndicator').classList.remove('active');
   activeOscillators.forEach(o => { try { o.stop(); } catch(e) {} });
   activeOscillators = [];
-  if (audioCtx) { audioCtx.close(); audioCtx = null; }
+  // Don't close audioCtx — reuse it to avoid mobile issues
   drawTimeline();
 }
 
