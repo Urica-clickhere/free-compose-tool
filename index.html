@@ -248,6 +248,83 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.waveform-controls {
+  display: none;
+  grid-template-columns: minmax(250px, 1fr) minmax(250px, 1.35fr);
+  gap: 12px 20px;
+  align-items: center;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.waveform-controls.active {
+  display: grid;
+}
+
+.waveform-control {
+  display: grid;
+  grid-template-columns: auto minmax(100px, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.waveform-control label {
+  color: #94a3b8;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.waveform-control input[type="range"] {
+  width: 100%;
+  accent-color: #60a5fa;
+}
+
+.waveform-control-value {
+  color: #7dd3fc;
+  font: 12px 'SF Mono', 'Fira Code', monospace;
+  min-width: 42px;
+  text-align: right;
+}
+
+.waveform-range {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.waveform-zoom-presets {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.waveform-mini-btn {
+  padding: 4px 9px;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  background: #111827;
+  color: #94a3b8;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.waveform-mini-btn:hover {
+  color: #e2e8f0;
+  border-color: #3b82f6;
+}
+
+@media (max-width: 720px) {
+  .waveform-controls { grid-template-columns: 1fr; }
+  .waveform-range { grid-column: 1; align-items: flex-start; flex-direction: column; }
+}
+
 #waveformCanvas {
   width: 100%;
   height: 220px;
@@ -400,9 +477,30 @@ h1 {
       <input class="audio-file-input" id="audioFileInput" type="file" accept="audio/*,.mp3,.wav,.ogg,.flac,.m4a,.aac">
       <span class="file-info" id="audioFileInfo">支持浏览器可解码的 MP3、WAV、OGG、FLAC 等格式</span>
     </div>
+    <div class="waveform-controls" id="waveformControls">
+      <div class="waveform-control">
+        <label for="waveformZoom">时间缩放</label>
+        <input id="waveformZoom" type="range" min="1" max="24" step="1" value="1">
+        <span class="waveform-control-value" id="waveformZoomValue">1×</span>
+      </div>
+      <div class="waveform-control">
+        <label for="waveformPosition">查看位置</label>
+        <input id="waveformPosition" type="range" min="0" max="1000" step="1" value="0" disabled>
+        <span class="waveform-control-value" id="waveformPositionValue">0%</span>
+      </div>
+      <div class="waveform-range">
+        <span id="waveformVisibleRange">显示完整音频</span>
+        <div class="waveform-zoom-presets">
+          <button class="waveform-mini-btn" type="button" data-waveform-zoom="1">适应全长</button>
+          <button class="waveform-mini-btn" type="button" data-waveform-zoom="4">4×</button>
+          <button class="waveform-mini-btn" type="button" data-waveform-zoom="12">12×</button>
+          <button class="waveform-mini-btn" type="button" data-waveform-zoom="24">24×</button>
+        </div>
+      </div>
+    </div>
     <canvas id="waveformCanvas" aria-label="上传音频的振幅波形图"></canvas>
     <audio id="sourceAudio" controls preload="metadata"></audio>
-    <p class="waveform-help">波形高度表示振幅大小，横向表示时间。播放时红线会跟随进度，也可以点击波形跳转。当前版本只绘制波形，不识别音符。</p>
+    <p class="waveform-help">彩色主体表示 RMS 能量，细线表示瞬时峰值；横向为时间。可以缩放到 4×–24× 查看细节、拖动“查看位置”导航，播放时会自动跟随。当前版本只绘制波形，不识别音符。</p>
   </div>
 
   <!-- Presets -->
@@ -515,6 +613,8 @@ let activeOscillators = [];
 let animFrame = null;
 let importedAudioBuffer = null;
 let importedAudioUrl = null;
+let waveformZoom = 1;
+let waveformWindowStart = 0;
 
 // ─── Instrument models ───
 // Each model uses additive synthesis plus an ADSR-style envelope.
@@ -767,10 +867,44 @@ function formatAudioTime(seconds) {
   return minutes + ':' + String(secs).padStart(2, '0');
 }
 
-function drawImportedWaveform() {
+function clampWaveformWindow() {
+  if (!importedAudioBuffer) {
+    waveformWindowStart = 0;
+    return;
+  }
+  const visibleDuration = importedAudioBuffer.duration / waveformZoom;
+  const maxStart = Math.max(0, importedAudioBuffer.duration - visibleDuration);
+  waveformWindowStart = Math.min(maxStart, Math.max(0, waveformWindowStart));
+}
+
+function updateWaveformControls() {
+  const zoomInput = document.getElementById('waveformZoom');
+  const positionInput = document.getElementById('waveformPosition');
+  const duration = importedAudioBuffer ? importedAudioBuffer.duration : 0;
+  const visibleDuration = duration ? duration / waveformZoom : 0;
+  const maxStart = Math.max(0, duration - visibleDuration);
+
+  zoomInput.value = waveformZoom;
+  document.getElementById('waveformZoomValue').textContent = waveformZoom + '×';
+  positionInput.disabled = waveformZoom === 1;
+  positionInput.value = maxStart ? Math.round(waveformWindowStart / maxStart * 1000) : 0;
+  document.getElementById('waveformPositionValue').textContent =
+    maxStart ? Math.round(waveformWindowStart / maxStart * 100) + '%' : '0%';
+  document.getElementById('waveformVisibleRange').textContent = duration
+    ? '显示 ' + formatAudioTime(waveformWindowStart) + ' – ' +
+      formatAudioTime(Math.min(duration, waveformWindowStart + visibleDuration)) +
+      '（窗口 ' + visibleDuration.toFixed(2) + ' 秒）'
+    : '显示完整音频';
+}
+
+function drawImportedWaveform(followPlayhead = false) {
   const canvas = document.getElementById('waveformCanvas');
   const width = Math.max(280, Math.floor(canvas.getBoundingClientRect().width));
-  const height = 220;
+  const height = 250;
+  const plotTop = 18;
+  const plotBottom = height - 32;
+  const plotHeight = plotBottom - plotTop;
+  const centerY = plotTop + plotHeight / 2;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   canvas.width = Math.floor(width * dpr);
   canvas.height = Math.floor(height * dpr);
@@ -781,7 +915,7 @@ function drawImportedWaveform() {
 
   const background = ctx.createLinearGradient(0, 0, 0, height);
   background.addColorStop(0, '#111c30');
-  background.addColorStop(1, '#0b1220');
+  background.addColorStop(1, '#080f1d');
   ctx.fillStyle = background;
   ctx.fillRect(0, 0, width, height);
 
@@ -793,74 +927,124 @@ function drawImportedWaveform() {
     return;
   }
 
+  const audio = document.getElementById('sourceAudio');
   const duration = importedAudioBuffer.duration;
+  const visibleDuration = duration / waveformZoom;
+  const maxStart = Math.max(0, duration - visibleDuration);
+
+  if (followPlayhead && !audio.paused && waveformZoom > 1) {
+    const margin = visibleDuration * 0.08;
+    if (audio.currentTime < waveformWindowStart ||
+        audio.currentTime > waveformWindowStart + visibleDuration - margin) {
+      waveformWindowStart = Math.min(maxStart, Math.max(0, audio.currentTime - visibleDuration * 0.12));
+    }
+  }
+  clampWaveformWindow();
+  updateWaveformControls();
+
+  const windowEnd = Math.min(duration, waveformWindowStart + visibleDuration);
   const channels = Array.from(
     { length: importedAudioBuffer.numberOfChannels },
     (_, index) => importedAudioBuffer.getChannelData(index)
   );
-  const totalSamples = importedAudioBuffer.length;
-  const samplesPerPixel = totalSamples / width;
-
-  ctx.strokeStyle = '#1e293b';
-  ctx.lineWidth = 1;
-  ctx.font = '11px monospace';
-  ctx.textAlign = 'center';
-  for (let i = 0; i <= 5; i++) {
-    const x = width * i / 5;
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, height);
-    ctx.stroke();
-    ctx.fillStyle = '#64748b';
-    const labelX = Math.min(width - 24, Math.max(24, x));
-    ctx.fillText(formatAudioTime(duration * i / 5), labelX, height - 8);
-  }
-
-  ctx.strokeStyle = '#334155';
-  ctx.beginPath();
-  ctx.moveTo(0, height / 2);
-  ctx.lineTo(width, height / 2);
-  ctx.stroke();
-
-  const waveformGradient = ctx.createLinearGradient(0, 25, 0, height - 25);
-  waveformGradient.addColorStop(0, '#60a5fa');
-  waveformGradient.addColorStop(0.5, '#6ee7b7');
-  waveformGradient.addColorStop(1, '#3b82f6');
-  ctx.strokeStyle = waveformGradient;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
+  const startSample = Math.floor(waveformWindowStart * importedAudioBuffer.sampleRate);
+  const endSample = Math.min(
+    importedAudioBuffer.length,
+    Math.ceil(windowEnd * importedAudioBuffer.sampleRate)
+  );
+  const samplesPerPixel = Math.max(1, (endSample - startSample) / width);
+  const rmsValues = new Float32Array(width);
+  const peakValues = new Float32Array(width);
 
   for (let x = 0; x < width; x++) {
-    const from = Math.floor(x * samplesPerPixel);
-    const to = Math.min(totalSamples, Math.floor((x + 1) * samplesPerPixel));
-    const stride = Math.max(1, Math.floor((to - from) / 96));
-    let min = 1;
-    let max = -1;
+    const from = Math.floor(startSample + x * samplesPerPixel);
+    const to = Math.min(endSample, Math.ceil(startSample + (x + 1) * samplesPerPixel));
+    const stride = Math.max(1, Math.floor((to - from) / 128));
+    let sumSquares = 0;
+    let peak = 0;
+    let count = 0;
 
     for (let sampleIndex = from; sampleIndex < to; sampleIndex += stride) {
       let sample = 0;
       for (const channel of channels) sample += channel[sampleIndex] || 0;
       sample /= channels.length;
-      if (sample < min) min = sample;
-      if (sample > max) max = sample;
+      const absolute = Math.abs(sample);
+      if (absolute > peak) peak = absolute;
+      sumSquares += sample * sample;
+      count++;
     }
 
-    const top = height / 2 - max * (height * 0.42);
-    const bottom = height / 2 - min * (height * 0.42);
-    ctx.moveTo(x + 0.5, top);
-    ctx.lineTo(x + 0.5, bottom);
+    const rms = count ? Math.sqrt(sumSquares / count) : 0;
+    rmsValues[x] = Math.pow(Math.min(1, rms * 1.45), 0.72);
+    peakValues[x] = Math.pow(Math.min(1, peak), 0.78);
+  }
+
+  // Time grid for the current zoom window.
+  ctx.strokeStyle = 'rgba(51, 65, 85, 0.55)';
+  ctx.lineWidth = 1;
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'center';
+  for (let i = 0; i <= 6; i++) {
+    const x = width * i / 6;
+    ctx.beginPath();
+    ctx.moveTo(x, plotTop);
+    ctx.lineTo(x, plotBottom);
+    ctx.stroke();
+    ctx.fillStyle = '#64748b';
+    const labelX = Math.min(width - 24, Math.max(24, x));
+    ctx.fillText(
+      formatAudioTime(waveformWindowStart + visibleDuration * i / 6),
+      labelX,
+      height - 10
+    );
+  }
+
+  ctx.strokeStyle = '#334155';
+  ctx.beginPath();
+  ctx.moveTo(0, centerY);
+  ctx.lineTo(width, centerY);
+  ctx.stroke();
+
+  // Quiet RMS energy body: clearer than filling the full min/max peak range.
+  const rmsGradient = ctx.createLinearGradient(0, plotTop, 0, plotBottom);
+  rmsGradient.addColorStop(0, 'rgba(56, 189, 248, 0.78)');
+  rmsGradient.addColorStop(0.5, 'rgba(45, 212, 191, 0.42)');
+  rmsGradient.addColorStop(1, 'rgba(59, 130, 246, 0.78)');
+  ctx.fillStyle = rmsGradient;
+  ctx.beginPath();
+  for (let x = 0; x < width; x++) {
+    const y = centerY - rmsValues[x] * plotHeight * 0.42;
+    if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  for (let x = width - 1; x >= 0; x--) {
+    ctx.lineTo(x, centerY + rmsValues[x] * plotHeight * 0.42);
+  }
+  ctx.closePath();
+  ctx.fill();
+
+  // Transient peaks remain visible as fine low-opacity strokes.
+  ctx.strokeStyle = 'rgba(125, 211, 252, 0.32)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = 0; x < width; x++) {
+    const peakHeight = peakValues[x] * plotHeight * 0.46;
+    ctx.moveTo(x + 0.5, centerY - peakHeight);
+    ctx.lineTo(x + 0.5, centerY + peakHeight);
   }
   ctx.stroke();
 
-  const audio = document.getElementById('sourceAudio');
-  if (audio.duration && Number.isFinite(audio.currentTime)) {
-    const playheadX = Math.min(width, Math.max(0, audio.currentTime / audio.duration * width));
-    ctx.strokeStyle = '#f43f5e';
+  if (audio.duration && Number.isFinite(audio.currentTime) &&
+      audio.currentTime >= waveformWindowStart && audio.currentTime <= windowEnd) {
+    const playheadX = (audio.currentTime - waveformWindowStart) / visibleDuration * width;
+    ctx.strokeStyle = '#fb7185';
     ctx.lineWidth = 2;
+    ctx.shadowColor = 'rgba(244, 63, 94, 0.45)';
+    ctx.shadowBlur = 7;
     ctx.beginPath();
-    ctx.moveTo(playheadX, 0);
-    ctx.lineTo(playheadX, height);
+    ctx.moveTo(playheadX, plotTop);
+    ctx.lineTo(playheadX, plotBottom);
     ctx.stroke();
+    ctx.shadowBlur = 0;
   }
 }
 
@@ -873,6 +1057,9 @@ async function loadImportedAudio(file) {
     const encoded = await file.arrayBuffer();
     const decoded = await getAudioCtx().decodeAudioData(encoded.slice(0));
     importedAudioBuffer = decoded;
+    waveformZoom = 1;
+    waveformWindowStart = 0;
+    document.getElementById('waveformControls').classList.add('active');
 
     if (importedAudioUrl) URL.revokeObjectURL(importedAudioUrl);
     importedAudioUrl = URL.createObjectURL(file);
@@ -888,6 +1075,9 @@ async function loadImportedAudio(file) {
     drawImportedWaveform();
   } catch (error) {
     importedAudioBuffer = null;
+    waveformZoom = 1;
+    waveformWindowStart = 0;
+    document.getElementById('waveformControls').classList.remove('active');
     audio.removeAttribute('src');
     audio.style.display = 'none';
     info.textContent = '无法解析该音频：' + error.message;
@@ -905,13 +1095,52 @@ document.getElementById('waveformCanvas').addEventListener('click', event => {
   if (!importedAudioBuffer || !Number.isFinite(audio.duration)) return;
   const rect = event.currentTarget.getBoundingClientRect();
   const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-  audio.currentTime = ratio * audio.duration;
+  const visibleDuration = importedAudioBuffer.duration / waveformZoom;
+  audio.currentTime = waveformWindowStart + ratio * visibleDuration;
   drawImportedWaveform();
 });
 
-document.getElementById('sourceAudio').addEventListener('timeupdate', drawImportedWaveform);
-document.getElementById('sourceAudio').addEventListener('seeked', drawImportedWaveform);
-document.getElementById('sourceAudio').addEventListener('ended', drawImportedWaveform);
+document.getElementById('sourceAudio').addEventListener('timeupdate', () => drawImportedWaveform(true));
+document.getElementById('sourceAudio').addEventListener('seeked', () => drawImportedWaveform(true));
+document.getElementById('sourceAudio').addEventListener('ended', () => drawImportedWaveform());
+
+document.getElementById('waveformZoom').addEventListener('input', event => {
+  if (!importedAudioBuffer) return;
+  const audio = document.getElementById('sourceAudio');
+  const oldVisibleDuration = importedAudioBuffer.duration / waveformZoom;
+  const focusTime = Number.isFinite(audio.currentTime) && audio.currentTime > 0
+    ? audio.currentTime
+    : waveformWindowStart + oldVisibleDuration / 2;
+  waveformZoom = Number(event.target.value);
+  const newVisibleDuration = importedAudioBuffer.duration / waveformZoom;
+  waveformWindowStart = focusTime - newVisibleDuration / 2;
+  clampWaveformWindow();
+  drawImportedWaveform();
+});
+
+document.getElementById('waveformPosition').addEventListener('input', event => {
+  if (!importedAudioBuffer || waveformZoom === 1) return;
+  const visibleDuration = importedAudioBuffer.duration / waveformZoom;
+  const maxStart = Math.max(0, importedAudioBuffer.duration - visibleDuration);
+  waveformWindowStart = Number(event.target.value) / 1000 * maxStart;
+  drawImportedWaveform();
+});
+
+document.querySelectorAll('[data-waveform-zoom]').forEach(button => {
+  button.addEventListener('click', () => {
+    if (!importedAudioBuffer) return;
+    const audio = document.getElementById('sourceAudio');
+    const oldVisibleDuration = importedAudioBuffer.duration / waveformZoom;
+    const focusTime = Number.isFinite(audio.currentTime) && audio.currentTime > 0
+      ? audio.currentTime
+      : waveformWindowStart + oldVisibleDuration / 2;
+    waveformZoom = Number(button.dataset.waveformZoom);
+    const newVisibleDuration = importedAudioBuffer.duration / waveformZoom;
+    waveformWindowStart = waveformZoom === 1 ? 0 : focusTime - newVisibleDuration / 2;
+    clampWaveformWindow();
+    drawImportedWaveform();
+  });
+});
 
 // ─── Play ───
 function playMelody() {
