@@ -366,10 +366,19 @@ h1 {
       <div class="control-group">
         <label>音色</label>
         <div class="wave-selector" id="waveSelector">
-          <button class="wave-btn active" data-wave="sine">Sine 正弦</button>
-          <button class="wave-btn" data-wave="triangle">Triangle 三角</button>
-          <button class="wave-btn" data-wave="square">Square 方波</button>
-          <button class="wave-btn" data-wave="sawtooth">Sawtooth 锯齿</button>
+          <button class="wave-btn active" data-wave="piano">🎹 原声钢琴</button>
+          <button class="wave-btn" data-wave="electricPiano">✨ 电钢琴</button>
+          <button class="wave-btn" data-wave="guitar">🎸 拨弦吉他</button>
+          <button class="wave-btn" data-wave="musicBox">🎶 八音盒</button>
+          <button class="wave-btn" data-wave="marimba">🪵 马林巴</button>
+          <button class="wave-btn" data-wave="organ">🎼 风琴</button>
+          <button class="wave-btn" data-wave="strings">🎻 弦乐</button>
+          <button class="wave-btn" data-wave="pad">🌌 氛围铺底</button>
+          <button class="wave-btn" data-wave="flute">🪈 长笛</button>
+          <button class="wave-btn" data-wave="sine">正弦波</button>
+          <button class="wave-btn" data-wave="triangle">三角波</button>
+          <button class="wave-btn" data-wave="square">方波</button>
+          <button class="wave-btn" data-wave="sawtooth">锯齿波</button>
         </div>
       </div>
       <div class="control-group">
@@ -442,11 +451,129 @@ h1 {
 <script>
 // ─── State ───
 let notes = [];
-let waveType = 'sine';
+let waveType = 'piano';
 let volume = 0.6;
 let audioCtx = null;
 let activeOscillators = [];
 let animFrame = null;
+
+// ─── Instrument models ───
+// Each model uses additive synthesis plus an ADSR-style envelope.
+// partials: [frequency ratio, gain, detune in cents]
+const TIMBRES = {
+  piano: {
+    name: '原声钢琴', wave: 'sine', attack: 0.006, decay: 0.62, sustain: 0.10, release: 0.72,
+    partials: [[1,1,0],[2,0.48,1],[3,0.26,-1],[4,0.14,2],[5,0.08,-2],[6,0.04,3]]
+  },
+  electricPiano: {
+    name: '电钢琴', wave: 'sine', attack: 0.012, decay: 0.88, sustain: 0.32, release: 0.75,
+    partials: [[1,1,0],[2,0.34,0],[3,0.15,2],[4,0.08,-2]]
+  },
+  guitar: {
+    name: '拨弦吉他', wave: 'triangle', attack: 0.004, decay: 0.38, sustain: 0.14, release: 0.42,
+    partials: [[1,1,0],[2,0.38,0],[3,0.20,0],[4,0.10,0],[5,0.05,0]]
+  },
+  musicBox: {
+    name: '八音盒', wave: 'sine', attack: 0.002, decay: 0.44, sustain: 0.025, release: 0.92,
+    partials: [[1,1,0],[2,0.58,2],[3,0.32,-2],[4,0.18,3],[6,0.11,-3]]
+  },
+  marimba: {
+    name: '马林巴', wave: 'sine', attack: 0.003, decay: 0.30, sustain: 0.025, release: 0.24,
+    partials: [[1,1,0],[4,0.22,0],[10,0.08,0]]
+  },
+  organ: {
+    name: '风琴', wave: 'sine', attack: 0.035, decay: 0.12, sustain: 0.84, release: 0.20,
+    partials: [[0.5,0.22,0],[1,1,0],[2,0.55,0],[3,0.28,0],[4,0.18,0]]
+  },
+  strings: {
+    name: '弦乐', wave: 'sawtooth', attack: 0.30, decay: 0.38, sustain: 0.68, release: 0.72,
+    partials: [[1,0.62,-7],[1,0.62,7],[2,0.20,-4],[2,0.20,4]]
+  },
+  pad: {
+    name: '氛围铺底', wave: 'sine', attack: 0.48, decay: 0.72, sustain: 0.72, release: 1.25,
+    partials: [[1,0.72,-9],[1,0.72,0],[1,0.72,9],[2,0.18,-4],[2,0.18,4]]
+  },
+  flute: {
+    name: '长笛', wave: 'sine', attack: 0.065, decay: 0.18, sustain: 0.78, release: 0.22,
+    partials: [[1,1,0],[2,0.16,0],[3,0.055,0]]
+  },
+  sine: {
+    name: '正弦波', wave: 'sine', attack: 0.02, decay: 0.04, sustain: 1, release: 0.03,
+    partials: [[1,1,0]]
+  },
+  triangle: {
+    name: '三角波', wave: 'triangle', attack: 0.02, decay: 0.04, sustain: 1, release: 0.03,
+    partials: [[1,1,0]]
+  },
+  square: {
+    name: '方波', wave: 'square', attack: 0.02, decay: 0.04, sustain: 0.75, release: 0.04,
+    partials: [[1,0.72,0]]
+  },
+  sawtooth: {
+    name: '锯齿波', wave: 'sawtooth', attack: 0.02, decay: 0.05, sustain: 0.72, release: 0.05,
+    partials: [[1,0.62,0]]
+  }
+};
+
+function getEnvelopePlan(profile, duration) {
+  const safeDuration = Math.max(0.01, duration);
+  const attack = Math.min(profile.attack, Math.max(0.001, safeDuration * 0.35));
+  const decay = Math.min(profile.decay, Math.max(0.001, safeDuration - attack));
+  return { attack, decay, sustain: profile.sustain, release: profile.release };
+}
+
+function envelopeLevelAt(time, duration, profile) {
+  const plan = getEnvelopePlan(profile, duration);
+  if (time < 0) return 0;
+  if (time <= plan.attack) return time / plan.attack;
+  if (time <= plan.attack + plan.decay && time <= duration) {
+    const progress = (time - plan.attack) / plan.decay;
+    return 1 - (1 - plan.sustain) * progress;
+  }
+  if (time <= duration) return plan.sustain;
+  if (time <= duration + plan.release) {
+    const progress = (time - duration) / plan.release;
+    return plan.sustain * Math.pow(1 - progress, 1.35);
+  }
+  return 0;
+}
+
+function profileNormalizer(profile) {
+  const total = profile.partials.reduce((sum, partial) => sum + partial[1], 0);
+  return Math.max(1, total * 0.82);
+}
+
+function createInstrumentNote(ctx, destination, freq, startTime, duration, profile) {
+  const envelope = ctx.createGain();
+  const plan = getEnvelopePlan(profile, duration);
+  const decayEnd = startTime + plan.attack + plan.decay;
+  const noteOff = startTime + duration;
+  const stopTime = noteOff + plan.release;
+  const normalizer = profileNormalizer(profile);
+
+  envelope.gain.setValueAtTime(0.0001, startTime);
+  envelope.gain.linearRampToValueAtTime(1, startTime + plan.attack);
+  envelope.gain.exponentialRampToValueAtTime(Math.max(0.0001, plan.sustain), decayEnd);
+  if (decayEnd < noteOff) {
+    envelope.gain.setValueAtTime(Math.max(0.0001, plan.sustain), noteOff);
+  }
+  envelope.gain.exponentialRampToValueAtTime(0.0001, stopTime);
+  envelope.connect(destination);
+
+  profile.partials.forEach(([ratio, gain, detune = 0]) => {
+    const osc = ctx.createOscillator();
+    const partialGain = ctx.createGain();
+    osc.type = profile.wave;
+    osc.frequency.setValueAtTime(freq * ratio, startTime);
+    osc.detune.setValueAtTime(detune, startTime);
+    partialGain.gain.value = gain / normalizer;
+    osc.connect(partialGain);
+    partialGain.connect(envelope);
+    osc.start(startTime);
+    osc.stop(stopTime + 0.03);
+    activeOscillators.push(osc);
+  });
+}
 
 // ─── Frequency reference ───
 const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
@@ -581,37 +708,28 @@ function playMelody() {
 
   const ctx = getAudioCtx();
   const masterGain = ctx.createGain();
+  const compressor = ctx.createDynamicsCompressor();
   masterGain.gain.value = volume;
-  masterGain.connect(ctx.destination);
+  compressor.threshold.value = -12;
+  compressor.knee.value = 18;
+  compressor.ratio.value = 5;
+  compressor.attack.value = 0.003;
+  compressor.release.value = 0.25;
+  masterGain.connect(compressor);
+  compressor.connect(ctx.destination);
 
-  const now = ctx.currentTime;
+  const profile = TIMBRES[waveType] || TIMBRES.piano;
+  const now = ctx.currentTime + 0.025;
   valid.forEach(n => {
-    const osc = ctx.createOscillator();
-    const env = ctx.createGain();
-    osc.type = waveType;
-    osc.frequency.value = n.freq;
-
-    // Smooth envelope to avoid clicks
-    env.gain.setValueAtTime(0, now + n.start);
-    env.gain.linearRampToValueAtTime(1, now + n.start + Math.min(0.02, n.dur * 0.1));
-    env.gain.setValueAtTime(1, now + n.start + n.dur - Math.min(0.02, n.dur * 0.1));
-    env.gain.linearRampToValueAtTime(0, now + n.start + n.dur);
-
-    osc.connect(env);
-    env.connect(masterGain);
-    osc.start(now + n.start);
-    osc.stop(now + n.start + n.dur + 0.05);
-    activeOscillators.push(osc);
+    createInstrumentNote(ctx, masterGain, n.freq, now + n.start, n.dur, profile);
   });
 
-  // Playing indicator
-  const maxEnd = Math.max(...valid.map(n => n.start + n.dur));
+  const maxEnd = Math.max(...valid.map(n => n.start + n.dur + profile.release));
   document.getElementById('playingIndicator').classList.add('active');
   setTimeout(() => {
     document.getElementById('playingIndicator').classList.remove('active');
   }, maxEnd * 1000 + 100);
 
-  // Animate timeline playhead
   const startWall = performance.now();
   function animatePlayhead() {
     const elapsed = (performance.now() - startWall) / 1000;
@@ -633,48 +751,51 @@ function stopMelody() {
 }
 
 // ─── Export WAV ───
+function waveSample(type, phase, cycles) {
+  switch (type) {
+    case 'triangle': return 2 * Math.abs(2 * (cycles % 1) - 1) - 1;
+    case 'square': return Math.sin(phase) >= 0 ? 1 : -1;
+    case 'sawtooth': return 2 * (cycles % 1) - 1;
+    default: return Math.sin(phase);
+  }
+}
+
 function exportWAV() {
   const valid = getValidNotes();
   if (!valid.length) return;
 
+  const profile = TIMBRES[waveType] || TIMBRES.piano;
+  const normalizer = profileNormalizer(profile);
   const sampleRate = 44100;
-  const maxEnd = Math.max(...valid.map(n => n.start + n.dur));
-  const totalSamples = Math.ceil(maxEnd * sampleRate) + sampleRate * 0.1;
+  const maxEnd = Math.max(...valid.map(n => n.start + n.dur + profile.release));
+  const totalSamples = Math.ceil(maxEnd * sampleRate) + Math.floor(sampleRate * 0.05);
   const buffer = new Float32Array(totalSamples);
 
   valid.forEach(n => {
     const startSample = Math.floor(n.start * sampleRate);
-    const durSamples = Math.floor(n.dur * sampleRate);
-    const attackSamples = Math.min(Math.floor(sampleRate * 0.02), Math.floor(durSamples * 0.1));
-    const releaseSamples = attackSamples;
+    const noteSamples = Math.ceil((n.dur + profile.release) * sampleRate);
 
-    for (let i = 0; i < durSamples; i++) {
+    for (let i = 0; i < noteSamples && startSample + i < buffer.length; i++) {
       const t = i / sampleRate;
+      const env = envelopeLevelAt(t, n.dur, profile);
       let sample = 0;
-      const phase = 2 * Math.PI * n.freq * t;
 
-      switch (waveType) {
-        case 'sine': sample = Math.sin(phase); break;
-        case 'triangle': sample = 2 * Math.abs(2 * ((n.freq * t) % 1) - 1) - 1; break;
-        case 'square': sample = Math.sin(phase) >= 0 ? 1 : -1; break;
-        case 'sawtooth': sample = 2 * ((n.freq * t) % 1) - 1; break;
-      }
+      profile.partials.forEach(([ratio, gain, detune = 0]) => {
+        const detunedFreq = n.freq * ratio * Math.pow(2, detune / 1200);
+        const cycles = detunedFreq * t;
+        const phase = 2 * Math.PI * cycles;
+        sample += waveSample(profile.wave, phase, cycles) * gain;
+      });
 
-      // Envelope
-      let env = 1;
-      if (i < attackSamples) env = i / attackSamples;
-      else if (i > durSamples - releaseSamples) env = (durSamples - i) / releaseSamples;
-
-      buffer[startSample + i] = (buffer[startSample + i] || 0) + sample * env * volume;
+      buffer[startSample + i] += (sample / normalizer) * env * volume;
     }
   });
 
-  // Clamp
+  // Soft limiting keeps chords loud without harsh digital clipping.
   for (let i = 0; i < buffer.length; i++) {
-    buffer[i] = Math.max(-1, Math.min(1, buffer[i]));
+    buffer[i] = Math.tanh(buffer[i] * 0.9);
   }
 
-  // Encode WAV
   const numChannels = 1;
   const bitsPerSample = 16;
   const byteRate = sampleRate * numChannels * bitsPerSample / 8;
@@ -711,7 +832,7 @@ function exportWAV() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'melody.wav';
+  a.download = 'melody-' + waveType + '.wav';
   a.click();
   URL.revokeObjectURL(url);
 }
