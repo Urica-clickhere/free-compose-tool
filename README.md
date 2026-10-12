@@ -4,7 +4,44 @@
 
 ## 演示
 
-打开 `index.html` 即可使用，无需安装任何依赖。
+在线地址：<https://free-compose-tool.vercel.app/>。编曲器仍可离线使用；作品社区需要HTTP服务和Neon数据库。
+
+## 作品社区
+
+- 从工作台发布乐谱、音色、音量、标题和创作介绍
+- 浏览、搜索、试听、点赞、评论，复制作品链接
+- 导入社区作品继续编曲，导入前会提醒保存当前作品
+- 昵称发布，无需注册；原浏览器可撤回自己的作品和评论
+- 乐谱存储在Neon Postgres，通过Vercel Functions访问；浏览器不会获得数据库密钥
+- 每首作品最多512个音符、120秒；试听复用工作台的音色合成模型
+
+作品归属由HttpOnly访客Cookie确定。换设备或清除网站数据后无法管理原有内容；这一版不包含跨设备账号。上传到波形查看器的音频文件仍在浏览器本地，不会发布到论坛。
+
+### 本地开发与部署
+
+需要Node.js 24及以上版本。
+
+```sh
+npm ci
+# 将 .env.example 复制为 .env.local，设置自己的 DATABASE_URL
+npm run db:migrate
+npm run dev
+```
+
+在Vercel项目中连接Neon并配置`DATABASE_URL`，再部署仓库。首次请求会创建`composer_`前缀的社区数据表。构建只公开`index.html`、`forum.js`和`forum.css`，后端源码和环境文件不会进入静态输出。
+
+```sh
+npm run build
+npm test
+# 指向待验证的预览或正式环境，临时测试作品会在结束时撤回
+FORUM_BASE_URL=https://your-deployment.vercel.app npm run test:integration
+```
+
+### 管理与数据
+
+作品和评论撤回采用软删除。用户可以举报作品，记录保存在`composer_reports`，当前需维护者在数据库中查看并处理（这一版不包含管理后台）。数据库采用参数化查询；社区用户文本以纯文本渲染。写入须同源请求，发布和互动按访客及来源IP限制频率。
+
+备份和恢复通过Neon控制台管理。预览和正式环境连接同一数据库时会共享社区内容；自动验证创建的临时作品与评论会撤回，但软删除记录仍保留。
 
 ## 使用方法
 

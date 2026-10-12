@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>频率编曲器 - Frequency Music Composer</title>
+<link rel="stylesheet" href="/forum.css">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -468,6 +469,12 @@ h1 {
 <div class="app">
   <h1>频率编曲器</h1>
   <p class="subtitle">输入频率 / 开始时间 / 持续时间，用纯数字自由编曲</p>
+  <nav class="app-nav" aria-label="工具导航">
+    <button type="button" id="composeTab" class="nav-tab active" aria-pressed="true">编曲工作台</button>
+    <button type="button" id="communityTab" class="nav-tab" aria-pressed="false">作品社区</button>
+    <button type="button" id="shareCurrent" class="btn btn-success">发布当前编曲</button>
+  </nav>
+  <div id="composerView">
 
   <!-- Imported audio waveform -->
   <div class="section">
@@ -577,6 +584,7 @@ h1 {
       <button class="btn btn-success" onclick="playMelody()">&#9654; 播放</button>
       <button class="btn btn-danger" onclick="stopMelody()">&#9632; 停止</button>
       <button class="btn btn-warn" onclick="exportWAV()">&#11015; 导出 WAV</button>
+      <button class="btn btn-primary" type="button" id="sharePlayback">分享到社区</button>
     </div>
   </div>
 
@@ -601,6 +609,36 @@ h1 {
     <div class="section-title">常用频率参考（点击复制）</div>
     <div class="freq-ref" id="freqRef"></div>
   </div>
+  </div>
+  <section id="forumView" hidden aria-label="作品社区">
+    <div class="forum-intro"><span class="forum-kicker">每一个旋律，都值得被听见</span><h2>作品社区</h2><p>分享你的编曲，听听别人的灵感，把喜欢的乐谱带回工作台。</p></div>
+    <div id="forumFeed">
+      <form id="forumSearch" class="forum-toolbar">
+        <label class="sr-only" for="forumQuery">搜索作品、作者或介绍</label>
+        <input id="forumQuery" type="search" maxlength="80" placeholder="搜索作品、作者或介绍">
+        <button class="btn btn-primary" type="submit">搜索</button>
+        <label class="forum-filter"><input id="forumMine" type="checkbox"> 我的作品</label>
+        <button id="forumRefresh" class="btn btn-secondary" type="button">刷新</button>
+      </form>
+      <div id="forumList" class="forum-grid" aria-live="polite"></div>
+      <button id="forumMore" type="button" class="btn btn-secondary forum-more" hidden>加载更多作品</button>
+    </div>
+    <div id="forumDetail" hidden></div>
+  </section>
+  <p id="forumNotice" class="forum-notice" role="status" aria-live="polite"></p>
+  <dialog id="publishDialog" class="forum-dialog" aria-labelledby="publishHeading">
+    <form id="publishForm">
+      <div class="dialog-heading"><h2 id="publishHeading">发布你的编曲</h2><button id="closePublish" type="button" class="btn btn-secondary" aria-label="关闭发布窗口">关闭</button></div>
+      <p class="forum-muted">分享当前乐谱和音色，大家可以直接试听和导入。最长120秒，最多512个音符。</p>
+      <label for="publishTitle">作品标题</label><input id="publishTitle" name="title" required maxlength="80" placeholder="给这段旋律起个名字">
+      <label for="publishAuthor">你的昵称</label><input id="publishAuthor" name="author" required maxlength="24" autocomplete="nickname" placeholder="大家怎么称呼你">
+      <label for="publishDescription">作品介绍（可选）</label><textarea id="publishDescription" name="description" maxlength="2000" rows="4" placeholder="创作灵感、心情，或者想听到的建议"></textarea>
+      <p id="publishSummary" class="forum-muted"></p>
+      <p class="forum-muted">无需注册。请分享你有权发布的内容；此浏览器可以撤回自己发布的作品和评论，清除网站数据或换设备后将无法管理它们。上传的音频波形文件不会随乐谱发布。</p>
+      <p id="publishError" class="forum-error" role="alert"></p>
+      <button id="publishSubmit" type="submit" class="btn btn-success">公开发布</button>
+    </form>
+  </dialog>
 </div>
 
 <script>
@@ -1205,6 +1243,7 @@ function playMelody() {
 }
 
 function stopMelody() {
+  window.dispatchEvent(new Event('composer-stop'));
   if (animFrame) cancelAnimationFrame(animFrame);
   document.getElementById('playingIndicator').classList.remove('active');
   activeOscillators.forEach(o => { try { o.stop(); } catch(e) {} });
@@ -1468,6 +1507,44 @@ window.addEventListener('resize', () => {
   drawImportedWaveform();
 });
 drawImportedWaveform();
+
+// Community previews reuse the instrument engine without changing the workbench score.
+window.ComposerForum = {
+  snapshot() { return { notes: getValidNotes(), timbre: waveType, volume }; },
+  timbreName(key) { return TIMBRES[key]?.name || key; },
+  unlock: unlockAudio,
+  stop: stopMelody,
+  import(score) {
+    stopMelody();
+    notes = score.notes.map(n => ({ freq: String(n.freq), start: String(n.start), dur: String(n.dur) }));
+    waveType = score.timbre;
+    volume = score.volume;
+    document.querySelectorAll('.wave-btn').forEach(b => b.classList.toggle('active', b.dataset.wave === waveType));
+    document.getElementById('volumeSlider').value = Math.round(volume * 100);
+    document.getElementById('volumeVal').textContent = Math.round(volume * 100) + '%';
+    renderTable();
+  },
+  preview(score) {
+    stopMelody();
+    const ctx = getAudioCtx();
+    const gain = ctx.createGain();
+    const compressor = ctx.createDynamicsCompressor();
+    gain.gain.value = score.volume;
+    compressor.threshold.value = -12;
+    compressor.knee.value = 18;
+    compressor.ratio.value = 5;
+    gain.connect(compressor);
+    compressor.connect(ctx.destination);
+    const profile = TIMBRES[score.timbre] || TIMBRES.piano;
+    score.notes.forEach(n => createInstrumentNote(ctx, gain, n.freq, ctx.currentTime + 0.025 + n.start, n.dur, profile));
+    const duration = Math.max(...score.notes.map(n => n.start + n.dur)) + profile.release + 0.1;
+    const cleanup = () => { gain.disconnect(); compressor.disconnect(); };
+    window.addEventListener('composer-stop', cleanup, { once: true });
+    setTimeout(() => { cleanup(); window.removeEventListener('composer-stop', cleanup); }, duration * 1000);
+    return duration;
+  }
+};
 </script>
+<script type="module" src="/forum.js"></script>
 </body>
 </html>
