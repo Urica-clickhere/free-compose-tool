@@ -282,7 +282,7 @@ function route() {
   $('forumFeed').hidden = Boolean(match); $('forumDetail').hidden = !match;
   if (match) loadDetail(match[1]);
   else if (community) loadFeed();
-  else { ++state.generation; state.detail = null; }
+  else { ++state.generation; state.detail = null; composer.refresh(); }
 }
 window.addEventListener('hashchange', route);
 route();
