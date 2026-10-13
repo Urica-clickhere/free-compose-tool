@@ -1,5 +1,6 @@
 const $ = id => document.getElementById(id);
 const composer = window.ComposerForum;
+const { TIMBRE_KEYS, scoreTimbres } = window.ComposerScoreModel;
 const state = { page: 0, posts: new Map(), detail: null, generation: 0, mine: false, query: '', playing: null, timer: null, publish: null, nickname: '' };
 try { state.nickname = localStorage.getItem('composer_nickname') || ''; } catch {}
 const date = value => new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -69,8 +70,8 @@ function stopPreview() {
 window.addEventListener('composer-stop', stopPreview);
 function validScore(score) {
   return score && Array.isArray(score.notes) && score.notes.length > 0 && score.notes.length <= 512 && typeof score.volume === 'number' && score.volume >= 0 && score.volume <= 1 &&
-    ['piano','electricPiano','guitar','musicBox','marimba','organ','strings','pad','flute','sine','triangle','square','sawtooth'].includes(score.timbre) &&
-    score.notes.every(n => n && [n.freq,n.start,n.dur].every(x => typeof x === 'number' && Number.isFinite(x)) && n.freq >= 20 && n.freq <= 20000 && n.start >= 0 && n.dur > 0 && n.start + n.dur <= 120);
+    TIMBRE_KEYS.includes(score.timbre) &&
+    score.notes.every(n => n && TIMBRE_KEYS.includes(n.timbre ?? score.timbre) && [n.freq,n.start,n.dur].every(x => typeof x === 'number' && Number.isFinite(x)) && n.freq >= 20 && n.freq <= 20000 && n.start >= 0 && n.dur > 0 && n.start + n.dur <= 120);
 }
 async function fetchPost(id) {
   const cached = state.posts.get(id);
@@ -123,7 +124,10 @@ function metadata(post) {
 }
 function badges(post) {
   const el = node('div');
-  el.append(node('span', 'forum-chip', composer.timbreName(post.score?.timbre || post.timbre)), node('span', 'forum-chip', duration(post.duration)), node('span', 'forum-chip', `${post.note_count} 个音符`));
+  const timbres = post.score ? scoreTimbres(post.score) : post.timbres?.length ? post.timbres : [post.timbre];
+  const sound = node('span', 'forum-chip', timbres.length > 1 ? `混合音色 · ${timbres.length}种` : composer.timbreName(timbres[0]));
+  sound.title = timbres.map(key => composer.timbreName(key)).join(' / ');
+  el.append(sound, node('span', 'forum-chip', duration(post.duration)), node('span', 'forum-chip', `${post.note_count} 个音符`));
   return el;
 }
 function previewButton(post) {
@@ -270,7 +274,7 @@ function openPublish() {
   state.publish = { id: crypto.randomUUID(), score };
   $('publishAuthor').value = state.nickname;
   $('publishError').textContent = '';
-  $('publishSummary').textContent = `本次分享：${score.notes.length} 个音符 · ${duration(Math.max(...score.notes.map(n => n.start + n.dur)))} · ${composer.timbreName(score.timbre)}`;
+  $('publishSummary').textContent = `本次分享：${score.notes.length} 个音符 · ${duration(Math.max(...score.notes.map(n => n.start + n.dur)))} · ${scoreTimbres(score).map(key => composer.timbreName(key)).join(' / ')}`;
   $('publishDialog').showModal();
   $('publishTitle').focus();
 }

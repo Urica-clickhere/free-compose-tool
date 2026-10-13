@@ -1,4 +1,8 @@
 [hidden] { display: none !important; }
+.note-table { min-width: 670px; }
+.note-table select { width: 100%; min-width: 160px; color: #e2e8f0; background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 8px; font: inherit; font-size: 13px; }
+.note-table select:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
+.default-timbre-help { color: #94a3b8; font-size: 12px; margin-top: 10px; line-height: 1.6; }
 .app-nav { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 22px; align-items: center; }
 .app-nav #shareCurrent { margin-left: auto; }
 .nav-tab { color: #94a3b8; background: #111827; border: 1px solid #263348; padding: 12px 18px; border-radius: 9px; cursor: pointer; font: inherit; font-size: 14px; }

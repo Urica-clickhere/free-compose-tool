@@ -20,7 +20,7 @@ function client() {
 }
 test('real database: publish, read as another visitor, preserve sound, like, comment and enforce ownership', async () => {
   const owner=client(),other=client(),id=randomUUID(),commentId=randomUUID();
-  const score={notes:[{freq:440,start:0,dur:0.2},{freq:523,start:0.2,dur:0.2}],timbre:'guitar',volume:0.4};
+  const score={notes:[{freq:440,start:0,dur:0.2,timbre:'piano'},{freq:523,start:0,dur:0.2,timbre:'strings'},{freq:659.25,start:0.1,dur:0.2,timbre:'guitar'}],timbre:'flute',volume:0.4};
   let created=false;
   try {
     const pub=await owner('publish',{}, {id,title:'[临时功能验证] '+id.slice(0,8),author:'功能验证',description:'自动验证完成后撤回',score});
@@ -29,6 +29,7 @@ test('real database: publish, read as another visitor, preserve sound, like, com
     const read=await other('post',{id});assert.equal(read.status,200);assert.deepEqual(read.data.post.score,score);assert.equal(read.data.post.mine,false);
     assert.equal((await owner('post',{id})).data.post.mine,true);
     const feed=await other('list',{q:id.slice(0,8)});assert.equal(feed.status,200);assert.equal(feed.data.posts.filter(p=>p.id===id).length,1);
+    assert.deepEqual([...feed.data.posts.find(p=>p.id===id).timbres].sort(),['guitar','piano','strings']);
     assert.equal((await other('withdraw',{}, {id})).status,403);
     assert.equal((await other('like',{}, {id,liked:true})).data.post.likes,1);
     assert.equal((await other('like',{}, {id,liked:true})).data.post.likes,1);
