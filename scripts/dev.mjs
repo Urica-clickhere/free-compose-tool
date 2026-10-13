@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { handleForum } from '../lib/forum.js';
 const files = new Map([['/', ['index.html','text/html; charset=utf-8']], ['/index.html', ['index.html','text/html; charset=utf-8']], ['/forum.js', ['forum.js','text/javascript; charset=utf-8']], ['/forum.css', ['forum.css','text/css; charset=utf-8']]]);
 const port = Number(process.env.PORT || 3000);
+files.set('/score-model.js', ['score-model.js', 'text/javascript; charset=utf-8']);
 createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://localhost:${port}`);

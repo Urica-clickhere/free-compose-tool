@@ -526,7 +526,7 @@ h1 {
   <div class="section">
     <div class="controls-row">
       <div class="control-group">
-        <label>音色</label>
+        <label>新增音符默认音色</label>
         <div class="wave-selector" id="waveSelector">
           <button class="wave-btn active" data-wave="piano">🎹 原声钢琴</button>
           <button class="wave-btn" data-wave="electricPiano">✨ 电钢琴</button>
@@ -542,6 +542,10 @@ h1 {
           <button class="wave-btn" data-wave="square">方波</button>
           <button class="wave-btn" data-wave="sawtooth">锯齿波</button>
         </div>
+        <div class="btn-row">
+          <button class="btn btn-secondary" type="button" onclick="applyDefaultTimbre()">将默认音色应用于所有音符</button>
+        </div>
+        <p class="default-timbre-help">新添加的音符使用默认音色；可在每行单独调整。</p>
       </div>
       <div class="control-group">
         <label>音量</label>
@@ -565,6 +569,7 @@ h1 {
             <th>频率 Hz</th>
             <th>开始时间 s</th>
             <th>持续时间 s</th>
+            <th style="min-width:170px">音色</th>
             <th style="width:80px"></th>
           </tr>
         </thead>
@@ -650,7 +655,9 @@ h1 {
   </dialog>
 </div>
 
+<script src="./score-model.js"></script>
 <script>
+const { TIMBRE_LABELS, resolveNoteTimbre, readScoreDocument } = window.ComposerScoreModel;
 // ─── State ───
 let notes = [];
 let waveType = 'piano';
@@ -804,12 +811,12 @@ function buildFreqRef() {
 
 // ─── Table management ───
 function addRow(freq = '', start = '', dur = '') {
-  notes.push({ freq, start, dur });
+  notes.push({ freq, start, dur, timbre: waveType });
   renderTable();
 }
 
 function addRows(n) {
-  for (let i = 0; i < n; i++) notes.push({ freq: '', start: '', dur: '' });
+  for (let i = 0; i < n; i++) notes.push({ freq: '', start: '', dur: '', timbre: waveType });
   renderTable();
 }
 
@@ -829,6 +836,11 @@ function clearAll() {
   renderTable();
 }
 
+function applyDefaultTimbre() {
+  notes = notes.map(n => ({ ...n, timbre: waveType }));
+  renderTable();
+}
+
 function onInput(i, field, val) {
   notes[i][field] = val;
   drawTimeline();
@@ -840,9 +852,12 @@ function renderTable() {
   tbody.innerHTML = notes.map((n, i) => `
     <tr>
       <td style="color:#475569;font-size:13px;text-align:center">${i + 1}</td>
-      <td><input type="number" step="any" min="20" max="20000" placeholder="440" value="${n.freq}" oninput="onInput(${i},'freq',this.value)"></td>
-      <td><input type="number" step="any" min="0" placeholder="0.0" value="${n.start}" oninput="onInput(${i},'start',this.value)"></td>
-      <td><input type="number" step="any" min="0.01" placeholder="0.5" value="${n.dur}" oninput="onInput(${i},'dur',this.value)"></td>
+      <td><input aria-label="音符${i + 1}频率" type="number" step="any" min="20" max="20000" placeholder="440" value="${n.freq}" oninput="onInput(${i},'freq',this.value)"></td>
+      <td><input aria-label="音符${i + 1}开始时间" type="number" step="any" min="0" placeholder="0.0" value="${n.start}" oninput="onInput(${i},'start',this.value)"></td>
+      <td><input aria-label="音符${i + 1}持续时间" type="number" step="any" min="0.01" placeholder="0.5" value="${n.dur}" oninput="onInput(${i},'dur',this.value)"></td>
+      <td><select aria-label="音符${i + 1}音色" onchange="onInput(${i},'timbre',this.value)">
+        ${Object.entries(TIMBRE_LABELS).map(([key, label]) => `<option value="${key}"${resolveNoteTimbre(n, waveType) === key ? ' selected' : ''}>${label}</option>`).join('')}
+      </select></td>
       <td>
         <div class="row-actions">
           <button class="btn-icon btn-dup" title="复制" onclick="dupRow(${i})">&#x2398;</button>
@@ -876,7 +891,8 @@ function getValidNotes() {
     .map(n => ({
       freq: parseFloat(n.freq),
       start: parseFloat(n.start),
-      dur: parseFloat(n.dur)
+      dur: parseFloat(n.dur),
+      timbre: resolveNoteTimbre(n, waveType)
     }))
     .filter(n => n.freq > 0 && n.start >= 0 && n.dur > 0);
 }
@@ -1258,13 +1274,13 @@ async function playMelody() {
   masterGain.connect(compressor);
   compressor.connect(ctx.destination);
 
-  const profile = TIMBRES[waveType] || TIMBRES.piano;
   const now = ctx.currentTime + 0.025;
   valid.forEach(n => {
+    const profile = TIMBRES[resolveNoteTimbre(n, waveType)];
     createInstrumentNote(ctx, masterGain, n.freq, now + n.start, n.dur, profile);
   });
 
-  const maxEnd = Math.max(...valid.map(n => n.start + n.dur + profile.release));
+  const maxEnd = Math.max(...valid.map(n => n.start + n.dur + TIMBRES[resolveNoteTimbre(n, waveType)].release));
   document.getElementById('playingIndicator').classList.add('active');
   setTimeout(() => {
     document.getElementById('playingIndicator').classList.remove('active');
@@ -1306,14 +1322,14 @@ function exportWAV() {
   const valid = getValidNotes();
   if (!valid.length) return;
 
-  const profile = TIMBRES[waveType] || TIMBRES.piano;
-  const normalizer = profileNormalizer(profile);
   const sampleRate = 44100;
-  const maxEnd = Math.max(...valid.map(n => n.start + n.dur + profile.release));
+  const maxEnd = Math.max(...valid.map(n => n.start + n.dur + TIMBRES[resolveNoteTimbre(n, waveType)].release));
   const totalSamples = Math.ceil(maxEnd * sampleRate) + Math.floor(sampleRate * 0.05);
   const buffer = new Float32Array(totalSamples);
 
   valid.forEach(n => {
+    const profile = TIMBRES[resolveNoteTimbre(n, waveType)];
+    const normalizer = profileNormalizer(profile);
     const startSample = Math.floor(n.start * sampleRate);
     const noteSamples = Math.ceil((n.dur + profile.release) * sampleRate);
 
@@ -1374,7 +1390,8 @@ function exportWAV() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'melody-' + waveType + '.wav';
+  const timbres = [...new Set(valid.map(n => n.timbre))];
+  a.download = 'melody-' + (timbres.length > 1 ? 'mixed' : timbres[0]) + '.wav';
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -1466,20 +1483,15 @@ function drawTimeline(playhead = -1) {
 function syncJSON() {
   const valid = notes.filter(n => n.freq || n.start || n.dur);
   document.getElementById('jsonEditor').value = JSON.stringify(
-    valid.map(n => ({ freq: +n.freq || 0, start: +n.start || 0, dur: +n.dur || 0 })),
+    valid.map(n => ({ freq: +n.freq || 0, start: +n.start || 0, dur: +n.dur || 0, timbre: resolveNoteTimbre(n, waveType) })),
     null, 2
   );
 }
 
 function importJSON() {
   try {
-    const data = JSON.parse(document.getElementById('jsonEditor').value);
-    if (!Array.isArray(data)) throw new Error('需要数组格式');
-    notes = data.map(n => ({
-      freq: n.freq != null ? String(n.freq) : '',
-      start: n.start != null ? String(n.start) : '',
-      dur: n.dur != null ? String(n.dur) : (n.duration != null ? String(n.duration) : '')
-    }));
+    const data = readScoreDocument(JSON.parse(document.getElementById('jsonEditor').value), waveType, volume);
+    setWorkbenchScore(data);
     renderTable();
   } catch (e) {
     alert('JSON 解析失败: ' + e.message);
@@ -1532,7 +1544,8 @@ function loadPreset(name) {
   notes = PRESETS[name].map(n => ({
     freq: String(n.freq),
     start: String(n.start),
-    dur: String(n.dur)
+    dur: String(n.dur),
+    timbre: resolveNoteTimbre(n, waveType)
   }));
   renderTable();
 }
@@ -1549,6 +1562,15 @@ window.addEventListener('resize', () => {
 drawImportedWaveform();
 
 // Community previews reuse the instrument engine without changing the workbench score.
+function setWorkbenchScore(score) {
+  notes = score.notes.map(n => ({ freq: String(n.freq), start: String(n.start), dur: String(n.dur), timbre: resolveNoteTimbre(n, score.timbre) }));
+  waveType = score.timbre;
+  volume = score.volume;
+  document.querySelectorAll('.wave-btn').forEach(b => b.classList.toggle('active', b.dataset.wave === waveType));
+  document.getElementById('volumeSlider').value = Math.round(volume * 100);
+  document.getElementById('volumeVal').textContent = Math.round(volume * 100) + '%';
+}
+
 window.ComposerForum = {
   snapshot() { return { notes: getValidNotes(), timbre: waveType, volume }; },
   timbreName(key) { return TIMBRES[key]?.name || key; },
@@ -1557,12 +1579,7 @@ window.ComposerForum = {
   refresh() { drawTimeline(); drawImportedWaveform(); },
   import(score) {
     stopMelody();
-    notes = score.notes.map(n => ({ freq: String(n.freq), start: String(n.start), dur: String(n.dur) }));
-    waveType = score.timbre;
-    volume = score.volume;
-    document.querySelectorAll('.wave-btn').forEach(b => b.classList.toggle('active', b.dataset.wave === waveType));
-    document.getElementById('volumeSlider').value = Math.round(volume * 100);
-    document.getElementById('volumeVal').textContent = Math.round(volume * 100) + '%';
+    setWorkbenchScore(readScoreDocument(score));
     renderTable();
   },
   async preview(score) {
@@ -1578,9 +1595,9 @@ window.ComposerForum = {
     compressor.ratio.value = 5;
     gain.connect(compressor);
     compressor.connect(ctx.destination);
-    const profile = TIMBRES[score.timbre] || TIMBRES.piano;
-    score.notes.forEach(n => createInstrumentNote(ctx, gain, n.freq, ctx.currentTime + 0.025 + n.start, n.dur, profile));
-    const duration = Math.max(...score.notes.map(n => n.start + n.dur)) + profile.release + 0.1;
+    const now = ctx.currentTime + 0.025;
+    score.notes.forEach(n => createInstrumentNote(ctx, gain, n.freq, now + n.start, n.dur, TIMBRES[resolveNoteTimbre(n, score.timbre)]));
+    const duration = Math.max(...score.notes.map(n => n.start + n.dur + TIMBRES[resolveNoteTimbre(n, score.timbre)].release)) + 0.1;
     const cleanup = () => { gain.disconnect(); compressor.disconnect(); };
     window.addEventListener('composer-stop', cleanup, { once: true });
     setTimeout(() => { cleanup(); window.removeEventListener('composer-stop', cleanup); }, duration * 1000);

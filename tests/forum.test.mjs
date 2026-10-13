@@ -4,7 +4,7 @@ import { score, postInput, uuid, offset, checkOrigin, readBody } from '../lib/va
 import { visitor, handleForum } from '../lib/forum.js';
 const valid = { notes: [{ freq: 440, start: 0, dur: 1 }], timbre: 'piano', volume: 0.6 };
 test('published scores reject invalid, oversized, non-finite and excessively long input', () => {
-  assert.deepEqual(score(valid), valid);
+  assert.deepEqual(score(valid), {...valid, notes: valid.notes.map(n => ({...n,timbre:'piano'}))});
   for (const note of [{freq:0,start:0,dur:1}, {freq:440,start:-1,dur:1}, {freq:440,start:120,dur:1}, {freq:NaN,start:0,dur:1}, {freq:'440',start:0,dur:1}, null]) assert.throws(() => score({...valid,notes:[note]}));
   for (const extra of [{notes:[]}, {notes:Array(513).fill(valid.notes[0])}, {timbre:'unknown'}, {volume:Infinity}]) assert.throws(() => score({...valid,...extra}));
   assert.throws(() => postInput({id:'bad',title:'A',author:'B',score:valid}));

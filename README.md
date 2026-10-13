@@ -8,7 +8,7 @@
 
 ## 作品社区
 
-- 从工作台发布乐谱、音色、音量、标题和创作介绍
+- 从工作台发布乐谱、逐音符音色、音量、标题和创作介绍
 - 浏览、搜索、试听、点赞、评论，复制作品链接
 - 导入社区作品继续编曲，导入前会提醒保存当前作品
 - 昵称发布，无需注册；原浏览器可撤回自己的作品和评论
@@ -28,7 +28,7 @@ npm run db:migrate
 npm run dev
 ```
 
-在Vercel项目中连接Neon并配置`DATABASE_URL`，再部署仓库。首次请求会创建`composer_`前缀的社区数据表。构建只公开`index.html`、`forum.js`和`forum.css`，后端源码和环境文件不会进入静态输出。
+在Vercel项目中连接Neon并配置`DATABASE_URL`，再部署仓库。首次请求会创建`composer_`前缀的社区数据表。构建只公开`index.html`、`forum.js`、`forum.css`和`score-model.js`，后端源码和环境文件不会进入静态输出。
 
 ```sh
 npm run build
@@ -55,6 +55,8 @@ FORUM_BASE_URL=https://your-deployment.vercel.app npm run test:integration
 
 多个音符设置相同的开始时间即可形成**和弦**。
 
+每一行可以从下拉菜单选择13种音色之一。不同乐器的音符可以重叠或交替演奏。顶部的“新增音符默认音色”只作用于之后添加的音符；“将默认音色应用于所有音符”可以统一已有音符。复制音符会保留原音色。
+
 ### 快速上手
 
 1. 打开页面，点击任意预设（如「小星星」）试听
@@ -65,6 +67,7 @@ FORUM_BASE_URL=https://your-deployment.vercel.app npm run test:integration
 ## 功能
 
 - **13 种音色**：原声钢琴、电钢琴、拨弦吉他、八音盒、马林巴、风琴、弦乐、氛围铺底、长笛，以及 4 种基础波形
+- **逐音符音色**：实时播放、WAV混音、JSON和作品社区都保留每个音符的乐器，导出包含各乐器完整的释放尾音
 - **动态音色合成**：使用多层泛音、自然起音与衰减包络，让不同乐器具有明显的听感差异
 - **音色一致导出**：实时播放与 WAV 导出使用同一套合成模型
 - **音频波形查看器**：上传浏览器支持的音频文件，在本地解码并绘制自动增益校准的分段 RMS 能量柱，支持 1×–24× 时间缩放、位置导航、播放自动跟随和点击跳转
@@ -80,11 +83,14 @@ FORUM_BASE_URL=https://your-deployment.vercel.app npm run test:integration
 
 ```json
 [
-  { "freq": 262, "start": 0, "dur": 0.4 },
-  { "freq": 294, "start": 0.5, "dur": 0.4 },
-  { "freq": 330, "start": 1.0, "dur": 0.4 }
+  { "freq": 440, "start": 0, "dur": 0.5, "timbre": "piano" },
+  { "freq": 523.25, "start": 0, "dur": 1.0, "timbre": "strings" },
+  { "freq": 659.25, "start": 0.5, "dur": 0.5, "timbre": "guitar" },
+  { "freq": 783.99, "start": 1.0, "dur": 1.0, "timbre": "flute" }
 ]
 ```
+
+没有`timbre`的旧音符继承乐谱原来的全局音色。JSON导入也接受`{notes: [...], timbre: "guitar", volume: 0.6}`这种全局乐谱对象。旧版纯数组没有保存全局音色时，会使用导入时工作台选中的默认音色；导入后各音符的音色固定下来。JSON导出仍采用音符数组格式。
 
 ## 常用频率速查
 
