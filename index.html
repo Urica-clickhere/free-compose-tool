@@ -586,6 +586,7 @@ h1 {
       <button class="btn btn-warn" onclick="exportWAV()">&#11015; 导出 WAV</button>
       <button class="btn btn-primary" type="button" id="sharePlayback">分享到社区</button>
     </div>
+    <p id="audioStatus" role="status" aria-live="polite" style="min-height:20px;margin-top:10px;color:#fca5a5;font-size:13px"></p>
   </div>
 
   <!-- Timeline -->
@@ -657,6 +658,7 @@ let volume = 0.6;
 let audioCtx = null;
 let activeOscillators = [];
 let animFrame = null;
+let playbackGeneration = 0;
 let importedAudioBuffer = null;
 let importedAudioUrl = null;
 let waveformZoom = 1;
@@ -879,31 +881,51 @@ function getValidNotes() {
     .filter(n => n.freq > 0 && n.start >= 0 && n.dur > 0);
 }
 
-// ─── Audio context (reuse single instance for mobile compatibility) ───
+// ─── Audio context (reuse a single instance for mobile compatibility) ───
 function getAudioCtx() {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
-  // iOS Safari requires resume() in the synchronous user gesture call stack
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume();
+  if (!audioCtx || audioCtx.state === 'closed') {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) throw new Error('当前浏览器不支持网页音频播放');
+    audioCtx = new AudioContextClass();
   }
   return audioCtx;
 }
 
-// Unlock audio on first touch/click (iOS requires playing a buffer from user gesture)
-function unlockAudio() {
-  const ctx = getAudioCtx();
-  const buf = ctx.createBuffer(1, 1, 22050);
-  const src = ctx.createBufferSource();
-  src.buffer = buf;
-  src.connect(ctx.destination);
-  src.start(0);
-  document.removeEventListener('touchstart', unlockAudio);
-  document.removeEventListener('click', unlockAudio);
+function primeAudioOutput(ctx) {
+  // A near-silent oscillator is more reliable than an empty AudioBuffer on iOS.
+  const oscillator = ctx.createOscillator();
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.00001, ctx.currentTime);
+  oscillator.connect(gain);
+  gain.connect(ctx.destination);
+  oscillator.start(ctx.currentTime);
+  oscillator.stop(ctx.currentTime + 0.02);
+  oscillator.addEventListener('ended', () => {
+    oscillator.disconnect();
+    gain.disconnect();
+  }, { once: true });
 }
-document.addEventListener('touchstart', unlockAudio, { once: true });
-document.addEventListener('click', unlockAudio, { once: true });
+
+// resume() and the first source start must both happen directly inside a user gesture.
+async function unlockAudio() {
+  const ctx = getAudioCtx();
+  const resumePromise = ctx.state === 'running' ? null : ctx.resume();
+  primeAudioOutput(ctx);
+  if (resumePromise) await resumePromise;
+  if (ctx.state !== 'running') throw new Error('请再次轻触“播放”以启用声音');
+  return ctx;
+}
+
+function warmAudioFromGesture() {
+  unlockAudio().then(() => {
+    document.removeEventListener('pointerdown', warmAudioFromGesture);
+    document.removeEventListener('keydown', warmAudioFromGesture);
+  }).catch(() => {
+    // Keep the listeners so the next explicit gesture can try again.
+  });
+}
+document.addEventListener('pointerdown', warmAudioFromGesture, { passive: true });
+document.addEventListener('keydown', warmAudioFromGesture);
 
 // ─── Imported audio waveform ───
 function formatAudioTime(seconds) {
@@ -1210,12 +1232,21 @@ document.querySelectorAll('[data-waveform-zoom]').forEach(button => {
 });
 
 // ─── Play ───
-function playMelody() {
+async function playMelody() {
   stopMelody();
   const valid = getValidNotes();
   if (!valid.length) return;
 
-  const ctx = getAudioCtx();
+  const requestId = playbackGeneration;
+  let ctx;
+  try {
+    ctx = await unlockAudio();
+  } catch (error) {
+    document.getElementById('audioStatus').textContent = error.message || '声音启用失败，请再次轻触播放';
+    return;
+  }
+  if (requestId !== playbackGeneration) return;
+  document.getElementById('audioStatus').textContent = '';
   const masterGain = ctx.createGain();
   const compressor = ctx.createDynamicsCompressor();
   masterGain.gain.value = volume;
@@ -1251,6 +1282,7 @@ function playMelody() {
 }
 
 function stopMelody() {
+  playbackGeneration += 1;
   window.dispatchEvent(new Event('composer-stop'));
   if (animFrame) cancelAnimationFrame(animFrame);
   document.getElementById('playingIndicator').classList.remove('active');
@@ -1533,9 +1565,11 @@ window.ComposerForum = {
     document.getElementById('volumeVal').textContent = Math.round(volume * 100) + '%';
     renderTable();
   },
-  preview(score) {
+  async preview(score) {
     stopMelody();
-    const ctx = getAudioCtx();
+    const requestId = playbackGeneration;
+    const ctx = await unlockAudio();
+    if (requestId !== playbackGeneration) return 0;
     const gain = ctx.createGain();
     const compressor = ctx.createDynamicsCompressor();
     gain.gain.value = score.volume;

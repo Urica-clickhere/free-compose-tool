@@ -82,14 +82,15 @@ async function fetchPost(id) {
 }
 async function preview(id, el) {
   if (state.playing === id) { composer.stop(); return; }
-  composer.unlock();
+  await composer.unlock();
   const generation = state.generation;
   const original = el.textContent;
   el.disabled = true; el.textContent = '准备试听…';
   try {
     const post = await fetchPost(id);
     if (generation !== state.generation || !el.isConnected) return;
-    const seconds = composer.preview(post.score);
+    const seconds = await composer.preview(post.score);
+    if (!seconds) return;
     state.playing = id;
     document.querySelectorAll('[data-preview]').forEach(btn => {
       const playing = btn.dataset.preview === id;
