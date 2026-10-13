@@ -626,6 +626,14 @@ h1 {
     <div id="forumDetail" hidden></div>
   </section>
   <p id="forumNotice" class="forum-notice" role="status" aria-live="polite"></p>
+  <dialog id="confirmDialog" class="forum-dialog" aria-labelledby="confirmHeading">
+    <h2 id="confirmHeading"></h2>
+    <p id="confirmMessage" class="forum-muted"></p>
+    <div class="forum-card-actions">
+      <button id="confirmCancel" type="button" class="btn btn-secondary">取消</button>
+      <button id="confirmAccept" type="button" class="btn btn-primary">确认</button>
+    </div>
+  </dialog>
   <dialog id="publishDialog" class="forum-dialog" aria-labelledby="publishHeading">
     <form id="publishForm">
       <div class="dialog-heading"><h2 id="publishHeading">发布你的编曲</h2><button id="closePublish" type="button" class="btn btn-secondary" aria-label="关闭发布窗口">关闭</button></div>

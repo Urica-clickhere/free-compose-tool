@@ -25,6 +25,29 @@ function nickname(value) {
   state.nickname = value.trim();
   try { localStorage.setItem('composer_nickname', state.nickname); } catch {}
 }
+function confirmAction(title, message, label) {
+  const dialog = $('confirmDialog');
+  if (dialog.open) return Promise.resolve(false);
+  $('confirmHeading').textContent = title;
+  $('confirmMessage').textContent = message;
+  $('confirmAccept').textContent = label;
+  return new Promise(resolve => {
+    const finish = accepted => {
+      dialog.close();
+      $('confirmAccept').removeEventListener('click', accept);
+      $('confirmCancel').removeEventListener('click', cancel);
+      dialog.removeEventListener('cancel', cancel);
+      resolve(accepted);
+    };
+    const accept = () => finish(true);
+    const cancel = event => { event?.preventDefault(); finish(false); };
+    $('confirmAccept').addEventListener('click', accept);
+    $('confirmCancel').addEventListener('click', cancel);
+    dialog.addEventListener('cancel', cancel);
+    dialog.showModal();
+    $('confirmCancel').focus();
+  });
+}
 async function api(action, params = {}, body) {
   const query = new URLSearchParams({ action, ...params });
   const response = await fetch(`/api/forum?${query}`, {
@@ -80,7 +103,7 @@ async function importPost(id, el) {
   el.disabled = true;
   try {
     const post = await fetchPost(id);
-    if (!confirm('导入后会替换工作台的当前音符。建议先导出保存当前编曲，是否继续？')) return;
+    if (!await confirmAction('导入社区乐谱', '导入后会替换工作台的当前音符。建议先导出保存当前编曲。', '确认导入')) return;
     composer.import(post.score);
     location.hash = 'compose';
     notice(`已导入「${post.title}」，可以继续编曲或导出音频`);
@@ -175,7 +198,7 @@ async function loadDetail(id) {
     like.setAttribute('aria-pressed', String(post.liked));
     actions.append(previewButton(post), button('导入编曲器', el => importPost(id, el)), like, button('复制分享链接', () => copyLink(id)));
     if (post.mine) actions.append(button('撤回作品', async el => {
-      if (!confirm('撤回后，其他人将无法查看或试听这首作品。确认撤回？')) return;
+      if (!await confirmAction('撤回这首作品', '撤回后，其他人将无法查看或试听这首作品。', '确认撤回作品')) return;
       el.disabled = true;
       try { await api('withdraw', {}, { id }); state.posts.delete(id); location.hash = 'community'; notice('作品已撤回'); }
       finally { el.disabled = false; }
@@ -198,7 +221,7 @@ async function loadDetail(id) {
         const row = node('article', 'forum-comment');
         row.append(metadata(c), node('p', 'forum-description', c.content));
         if (c.mine) row.append(button('撤回评论', async el => {
-          if (!confirm('确认撤回这条评论？')) return;
+          if (!await confirmAction('撤回这条评论', '撤回后，其他人将无法看到这条评论。', '确认撤回评论')) return;
           el.disabled = true;
           try { await api('withdraw-comment', {}, { id, commentId: c.id }); await loadDetail(id); }
           finally { el.disabled = false; }
