@@ -1,4 +1,5 @@
 (() => {
+const MAX_COMMUNITY_DURATION_SECONDS = 240;
 const TIMBRE_LABELS = Object.freeze({
   piano: '🎹 原声钢琴', electricPiano: '✨ 电钢琴', guitar: '🎸 拨弦吉他',
   musicBox: '🎶 八音盒', marimba: '🪵 马林巴', organ: '🎼 风琴',
@@ -34,5 +35,5 @@ function readScoreDocument(data, defaultTimbre = 'piano', defaultVolume = 0.6) {
   });
   return { notes, timbre, volume };
 }
-  globalThis.ComposerScoreModel = Object.freeze({ TIMBRE_LABELS, TIMBRE_KEYS, resolveNoteTimbre, scoreTimbres, readScoreDocument });
+  globalThis.ComposerScoreModel = Object.freeze({ MAX_COMMUNITY_DURATION_SECONDS, TIMBRE_LABELS, TIMBRE_KEYS, resolveNoteTimbre, scoreTimbres, readScoreDocument });
 })();

@@ -1,15 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import vm from 'node:vm';
 import { score, postInput, uuid, offset, checkOrigin, readBody } from '../lib/validation.js';
 import { visitor, handleForum } from '../lib/forum.js';
 const valid = { notes: [{ freq: 440, start: 0, dur: 1 }], timbre: 'piano', volume: 0.6 };
 test('published scores reject invalid, oversized, non-finite and excessively long input', () => {
   assert.deepEqual(score(valid), {...valid, notes: valid.notes.map(n => ({...n,timbre:'piano'}))});
-  for (const note of [{freq:0,start:0,dur:1}, {freq:440,start:-1,dur:1}, {freq:440,start:120,dur:1}, {freq:NaN,start:0,dur:1}, {freq:'440',start:0,dur:1}, null]) assert.throws(() => score({...valid,notes:[note]}));
+  for (const note of [{freq:0,start:0,dur:1}, {freq:440,start:-1,dur:1}, {freq:440,start:240,dur:1}, {freq:NaN,start:0,dur:1}, {freq:'440',start:0,dur:1}, null]) assert.throws(() => score({...valid,notes:[note]}));
   for (const extra of [{notes:[]}, {notes:Array(513).fill(valid.notes[0])}, {timbre:'unknown'}, {volume:Infinity}]) assert.throws(() => score({...valid,...extra}));
   assert.throws(() => postInput({id:'bad',title:'A',author:'B',score:valid}));
   assert.throws(() => postInput({id:'74ac61ea-9f78-4b5c-8e57-85a03d9457a5',title:' ',author:'B',score:valid}));
   assert.throws(() => uuid('not-an-id')); assert.throws(() => offset('-1'));
+});
+test('community client and server accept up to four minutes and reject any later note ending', async () => {
+  const source = await readFile(new URL('../forum.js', import.meta.url), 'utf8');
+  const context = vm.createContext({ window: { ComposerScoreModel: globalThis.ComposerScoreModel, addEventListener() {} } });
+  // Run the actual client validation and its initialization without loading the community feed.
+  vm.runInContext(source.slice(0, source.indexOf('async function fetchPost(')), context);
+  for (const [start, dur, accepted] of [[0, 120, true], [120, 1, true], [0, 239.999, true], [0, 240, true], [239, 1, true], [239.999, 0.002, false], [0, 240.001, false], [240, 1, false]]) {
+    const input = { ...valid, notes: [{ freq: 440, start, dur }, ...valid.notes] };
+    assert.equal(context.validScore(input), accepted, `client: ${start} + ${dur}`);
+    if (accepted) assert.doesNotThrow(() => score(input));
+    else assert.throws(() => score(input), { status: 400, message: /4分钟（240秒）/ });
+  }
 });
 test('write requests require same-origin JSON and reject malformed or large bodies', async () => {
   const make = (origin, contentType='application/json', data='{}') => new Request('https://free-compose-tool.vercel.app/api/forum', {method:'POST',headers:{origin,'content-type':contentType},body:data});

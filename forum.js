@@ -1,6 +1,6 @@
 const $ = id => document.getElementById(id);
 const composer = window.ComposerForum;
-const { TIMBRE_KEYS, scoreTimbres } = window.ComposerScoreModel;
+const { MAX_COMMUNITY_DURATION_SECONDS, TIMBRE_KEYS, scoreTimbres } = window.ComposerScoreModel;
 const state = { page: 0, posts: new Map(), detail: null, generation: 0, mine: false, query: '', playing: null, timer: null, publish: null, nickname: '' };
 try { state.nickname = localStorage.getItem('composer_nickname') || ''; } catch {}
 const date = value => new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -71,7 +71,7 @@ window.addEventListener('composer-stop', stopPreview);
 function validScore(score) {
   return score && Array.isArray(score.notes) && score.notes.length > 0 && score.notes.length <= 512 && typeof score.volume === 'number' && score.volume >= 0 && score.volume <= 1 &&
     TIMBRE_KEYS.includes(score.timbre) &&
-    score.notes.every(n => n && TIMBRE_KEYS.includes(n.timbre ?? score.timbre) && [n.freq,n.start,n.dur].every(x => typeof x === 'number' && Number.isFinite(x)) && n.freq >= 20 && n.freq <= 20000 && n.start >= 0 && n.dur > 0 && n.start + n.dur <= 120);
+    score.notes.every(n => n && TIMBRE_KEYS.includes(n.timbre ?? score.timbre) && [n.freq,n.start,n.dur].every(x => typeof x === 'number' && Number.isFinite(x)) && n.freq >= 20 && n.freq <= 20000 && n.start >= 0 && n.dur > 0 && n.start + n.dur <= MAX_COMMUNITY_DURATION_SECONDS);
 }
 async function fetchPost(id) {
   const cached = state.posts.get(id);
@@ -270,7 +270,7 @@ async function loadDetail(id) {
 }
 function openPublish() {
   const score = composer.snapshot();
-  if (!validScore(score)) { notice('请先完成有效乐谱：1–512个音符，频率20–20000 Hz，总时长不超过120秒'); return; }
+  if (!validScore(score)) { notice(`请先完成有效乐谱：1–512个音符，频率20–20000 Hz，总时长不超过4分钟（${MAX_COMMUNITY_DURATION_SECONDS}秒）`); return; }
   state.publish = { id: crypto.randomUUID(), score };
   $('publishAuthor').value = state.nickname;
   $('publishError').textContent = '';
