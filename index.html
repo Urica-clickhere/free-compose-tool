@@ -101,9 +101,15 @@ h1 {
 }
 
 .row-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, 44px);
   gap: 4px;
 }
+
+.row-actions .btn-icon { width: 44px; }
+.btn-insert { background: rgba(16,185,129,0.1); color: #34d399; font-size: 12px; }
+.btn-insert:hover { background: rgba(16,185,129,0.25); }
+.btn-icon:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
 
 .btn-icon {
   width: 32px;
@@ -570,17 +576,18 @@ h1 {
             <th>开始时间 s</th>
             <th>持续时间 s</th>
             <th style="min-width:170px">音色</th>
-            <th style="width:80px"></th>
+            <th style="width:100px">操作</th>
           </tr>
         </thead>
         <tbody id="noteBody"></tbody>
       </table>
     </div>
     <div class="btn-row">
-      <button class="btn btn-secondary" onclick="addRow()">+ 添加音符</button>
+      <button class="btn btn-secondary" onclick="addRow()">+ 末尾添加音符</button>
       <button class="btn btn-secondary" onclick="addRows(5)">+ 批量添加5个</button>
       <button class="btn btn-danger" onclick="clearAll()">清空全部</button>
     </div>
+    <p class="default-timbre-help">点击每行的“前插”或“后插”添加空白音符；原有音符的开始时间保持不变。</p>
   </div>
 
   <!-- Playback -->
@@ -820,6 +827,13 @@ function addRows(n) {
   renderTable();
 }
 
+function insertRow(index) {
+  if (!Number.isInteger(index) || index < 0 || index > notes.length) return;
+  notes.splice(index, 0, { freq: '', start: '', dur: '', timbre: waveType });
+  renderTable();
+  document.getElementById(`noteFreq${index}`).focus();
+}
+
 function removeRow(i) {
   notes.splice(i, 1);
   renderTable();
@@ -852,7 +866,7 @@ function renderTable() {
   tbody.innerHTML = notes.map((n, i) => `
     <tr>
       <td style="color:#475569;font-size:13px;text-align:center">${i + 1}</td>
-      <td><input aria-label="音符${i + 1}频率" type="number" step="any" min="20" max="20000" placeholder="440" value="${n.freq}" oninput="onInput(${i},'freq',this.value)"></td>
+      <td><input id="noteFreq${i}" aria-label="音符${i + 1}频率" type="number" step="any" min="20" max="20000" placeholder="440" value="${n.freq}" oninput="onInput(${i},'freq',this.value)"></td>
       <td><input aria-label="音符${i + 1}开始时间" type="number" step="any" min="0" placeholder="0.0" value="${n.start}" oninput="onInput(${i},'start',this.value)"></td>
       <td><input aria-label="音符${i + 1}持续时间" type="number" step="any" min="0.01" placeholder="0.5" value="${n.dur}" oninput="onInput(${i},'dur',this.value)"></td>
       <td><select aria-label="音符${i + 1}音色" onchange="onInput(${i},'timbre',this.value)">
@@ -860,8 +874,10 @@ function renderTable() {
       </select></td>
       <td>
         <div class="row-actions">
-          <button class="btn-icon btn-dup" title="复制" onclick="dupRow(${i})">&#x2398;</button>
-          <button class="btn-icon btn-remove" title="删除" onclick="removeRow(${i})">&#x2715;</button>
+          <button type="button" class="btn-icon btn-insert" title="在此音符前插入" aria-label="在音符${i + 1}前插入" onclick="insertRow(${i})">前插</button>
+          <button type="button" class="btn-icon btn-insert" title="在此音符后插入" aria-label="在音符${i + 1}后插入" onclick="insertRow(${i + 1})">后插</button>
+          <button type="button" class="btn-icon btn-dup" title="复制" aria-label="复制音符${i + 1}" onclick="dupRow(${i})">&#x2398;</button>
+          <button type="button" class="btn-icon btn-remove" title="删除" aria-label="删除音符${i + 1}" onclick="removeRow(${i})">&#x2715;</button>
         </div>
       </td>
     </tr>
