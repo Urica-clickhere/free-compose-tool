@@ -364,7 +364,18 @@ h1 {
   border-radius: 8px;
   background: #0f172a;
   display: block;
+  cursor: crosshair;
+  touch-action: none;
 }
+#timeline:focus-visible { outline: 2px solid #60a5fa; outline-offset: 3px; }
+.timeline-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 12px; }
+.timeline-controls .waveform-control { flex: 1 1 240px; min-width: 0; }
+.timeline-progress { margin-top: 12px; }
+.timeline-progress .waveform-control { grid-template-columns: auto minmax(0, 1fr); }
+.timeline-progress input { grid-column: 1 / -1; grid-row: 2; }
+#timelineTime { grid-column: 2; grid-row: 1; text-align: right; }
+.timeline-controls button:disabled { opacity: 0.4; cursor: default; }
+.timeline-readout { color: #7dd3fc; font: 12px monospace; font-variant-numeric: tabular-nums; }
 
 /* Volume / BPM controls */
 .controls-row {
@@ -604,7 +615,29 @@ h1 {
   <!-- Timeline -->
   <div class="section">
     <div class="section-title">时间线可视化</div>
-    <canvas id="timeline"></canvas>
+    <div class="timeline-controls">
+      <button id="timelinePlay" type="button" class="btn btn-success" onclick="toggleTimelinePlayback()" disabled>▶ 播放</button>
+      <button id="timelineFit" type="button" class="btn btn-secondary" onclick="resetTimelineZoom()" aria-pressed="true" disabled>自适应音符</button>
+      <div class="waveform-control">
+        <label for="timelineZoom">缩放</label>
+        <input id="timelineZoom" type="range" min="0" max="100" step="1" value="0" disabled>
+        <span id="timelineZoomValue" class="waveform-control-value">1×</span>
+      </div>
+      <span id="timelineVisibleRange" class="timeline-readout">0.00–0.00 秒</span>
+    </div>
+    <canvas id="timeline" tabindex="0" role="slider" aria-label="时间线播放位置" aria-describedby="timelineHelp" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-disabled="true"></canvas>
+    <div class="timeline-controls timeline-progress">
+      <div class="waveform-control">
+        <label for="timelineSeek">播放进度</label>
+        <input id="timelineSeek" type="range" min="0" max="0" step="0.01" value="0" disabled>
+        <span id="timelineTime" class="timeline-readout">0:00.00 / 0:00.00</span>
+      </div>
+      <div class="waveform-control">
+        <label for="timelinePan">查看位置</label>
+        <input id="timelinePan" type="range" min="0" max="1000" step="1" value="0" disabled>
+      </div>
+    </div>
+    <p id="timelineHelp" class="waveform-help">默认按音符长度自动缩放，长曲分段显示；拖动“查看位置”浏览，播放时自动跟随。点击时间线，或拖动进度线 / 播放进度条后松手，即可从该位置播放。按住 Ctrl / ⌘ 滚轮缩放；时间线获得焦点时，← → 跳转 1 秒，Shift + ← → 跳转 10 秒，空格暂停 / 继续。</p>
   </div>
 
   <!-- JSON Editor -->
@@ -673,6 +706,15 @@ let audioCtx = null;
 let activeOscillators = [];
 let animFrame = null;
 let playbackGeneration = 0;
+let workbenchPlayback = null;
+let playbackPending = false;
+let timelineZoom = 1;
+let timelineAutoZoom = true;
+let timelineWindowStart = 0;
+let timelinePosition = 0;
+let timelineDrag = null;
+let timelineScrub = null;
+const TIMELINE_PAD = { l: 55, r: 15, t: 15, b: 30 };
 let importedAudioBuffer = null;
 let importedAudioUrl = null;
 let waveformZoom = 1;
@@ -764,21 +806,44 @@ function profileNormalizer(profile) {
   return Math.max(1, total * 0.82);
 }
 
-function createInstrumentNote(ctx, destination, freq, startTime, duration, profile) {
-  const envelope = ctx.createGain();
+function instrumentEnvelopePoints(duration, profile) {
   const plan = getEnvelopePlan(profile, duration);
-  const decayEnd = startTime + plan.attack + plan.decay;
-  const noteOff = startTime + duration;
-  const stopTime = noteOff + plan.release;
+  const attack = Math.min(plan.attack, duration);
+  const decayEnd = Math.min(attack + plan.decay, duration);
+  const points = [{ time: 0, value: 0.0001, ramp: 'set' }, { time: attack, value: 1, ramp: 'linear' }];
+  if (decayEnd > attack) points.push({ time: decayEnd, value: Math.max(0.0001, plan.sustain), ramp: 'exponential' });
+  if (decayEnd < duration) points.push({ time: duration, value: Math.max(0.0001, plan.sustain), ramp: 'exponential' });
+  points.push({ time: duration + plan.release, value: 0.0001, ramp: 'exponential' });
+  return points;
+}
+
+function instrumentEnvelopeValue(points, time) {
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1], b = points[i];
+    if (time <= b.time) {
+      const fraction = Math.max(0, (time - a.time) / (b.time - a.time));
+      return b.ramp === 'linear' ? a.value + (b.value - a.value) * fraction : a.value * Math.pow(b.value / a.value, fraction);
+    }
+  }
+  return 0.0001;
+}
+
+function createInstrumentNote(ctx, destination, freq, startTime, duration, profile, elapsed = 0) {
+  const points = instrumentEnvelopePoints(duration, profile);
+  const end = points[points.length - 1].time;
+  if (elapsed >= end) return;
+  const envelope = ctx.createGain();
+  const stopTime = startTime + end - elapsed;
   const normalizer = profileNormalizer(profile);
 
   envelope.gain.setValueAtTime(0.0001, startTime);
-  envelope.gain.linearRampToValueAtTime(1, startTime + plan.attack);
-  envelope.gain.exponentialRampToValueAtTime(Math.max(0.0001, plan.sustain), decayEnd);
-  if (decayEnd < noteOff) {
-    envelope.gain.setValueAtTime(Math.max(0.0001, plan.sustain), noteOff);
-  }
-  envelope.gain.exponentialRampToValueAtTime(0.0001, stopTime);
+  // Resume the original envelope phase; a short fade-in prevents clicks on a seek.
+  const resumeAt = elapsed > 0 ? Math.min(end, elapsed + 0.005) : 0;
+  if (elapsed > 0) envelope.gain.linearRampToValueAtTime(instrumentEnvelopeValue(points, resumeAt), startTime + resumeAt - elapsed);
+  points.filter(point => point.time > resumeAt).forEach(point => {
+    const method = point.ramp === 'linear' ? 'linearRampToValueAtTime' : 'exponentialRampToValueAtTime';
+    envelope.gain[method](point.value, startTime + point.time - elapsed);
+  });
   envelope.connect(destination);
 
   profile.partials.forEach(([ratio, gain, detune = 0]) => {
@@ -846,7 +911,10 @@ function dupRow(i) {
 }
 
 function clearAll() {
+  stopMelody();
   notes = [];
+  timelineAutoZoom = true;
+  timelineZoom = 1;
   renderTable();
 }
 
@@ -856,12 +924,14 @@ function applyDefaultTimbre() {
 }
 
 function onInput(i, field, val) {
+  if (workbenchPlayback || playbackPending) stopMelody(false);
   notes[i][field] = val;
   drawTimeline();
   syncJSON();
 }
 
 function renderTable() {
+  if (workbenchPlayback || playbackPending) stopMelody(false);
   const tbody = document.getElementById('noteBody');
   tbody.innerHTML = notes.map((n, i) => `
     <tr>
@@ -910,7 +980,7 @@ function getValidNotes() {
       dur: parseFloat(n.dur),
       timbre: resolveNoteTimbre(n, waveType)
     }))
-    .filter(n => n.freq > 0 && n.start >= 0 && n.dur > 0);
+    .filter(n => [n.freq, n.start, n.dur, n.start + n.dur].every(Number.isFinite) && n.freq > 0 && n.start >= 0 && n.dur > 0);
 }
 
 // ─── Audio context (reuse a single instance for mobile compatibility) ───
@@ -1264,20 +1334,42 @@ document.querySelectorAll('[data-waveform-zoom]').forEach(button => {
 });
 
 // ─── Play ───
-async function playMelody() {
-  stopMelody();
+function scoreDuration(valid = getValidNotes()) {
+  return valid.reduce((end, n) => Math.max(end, n.start + n.dur + TIMBRES[resolveNoteTimbre(n, waveType)].release), 0);
+}
+
+function currentPlaybackPosition() {
+  if (!workbenchPlayback) return timelinePosition;
+  const { ctx, offset, startedAt, end } = workbenchPlayback;
+  return Math.min(end, offset + Math.max(0, ctx.currentTime - startedAt));
+}
+
+async function playMelody(from = timelinePosition) {
   const valid = getValidNotes();
+  const maxEnd = scoreDuration(valid);
+  const requested = Number.isFinite(from) ? from : 0;
+  const offset = Math.max(0, Math.min(maxEnd, arguments.length === 0 && requested >= maxEnd ? 0 : requested));
+  stopMelody(false);
+  timelinePosition = offset;
+  drawTimeline();
   if (!valid.length) return;
+  if (offset >= maxEnd) return;
 
   const requestId = playbackGeneration;
+  playbackPending = true;
+  drawTimeline();
   let ctx;
   try {
     ctx = await unlockAudio();
   } catch (error) {
+    if (requestId !== playbackGeneration) return;
+    playbackPending = false;
     document.getElementById('audioStatus').textContent = error.message || '声音启用失败，请再次轻触播放';
+    drawTimeline();
     return;
   }
   if (requestId !== playbackGeneration) return;
+  playbackPending = false;
   document.getElementById('audioStatus').textContent = '';
   const masterGain = ctx.createGain();
   const compressor = ctx.createDynamicsCompressor();
@@ -1293,35 +1385,52 @@ async function playMelody() {
   const now = ctx.currentTime + 0.025;
   valid.forEach(n => {
     const profile = TIMBRES[resolveNoteTimbre(n, waveType)];
-    createInstrumentNote(ctx, masterGain, n.freq, now + n.start, n.dur, profile);
+    if (n.start + n.dur + profile.release <= offset) return;
+    createInstrumentNote(ctx, masterGain, n.freq, now + Math.max(0, n.start - offset), n.dur, profile, Math.max(0, offset - n.start));
   });
 
-  const maxEnd = Math.max(...valid.map(n => n.start + n.dur + TIMBRES[resolveNoteTimbre(n, waveType)].release));
+  workbenchPlayback = { ctx, masterGain, compressor, offset, startedAt: now, end: maxEnd };
   document.getElementById('playingIndicator').classList.add('active');
-  setTimeout(() => {
-    document.getElementById('playingIndicator').classList.remove('active');
-  }, maxEnd * 1000 + 100);
-
-  const startWall = performance.now();
   function animatePlayhead() {
-    const elapsed = (performance.now() - startWall) / 1000;
-    drawTimeline(elapsed);
-    if (elapsed < maxEnd + 0.2) {
-      animFrame = requestAnimationFrame(animatePlayhead);
-    }
+    if (requestId !== playbackGeneration) return;
+    timelinePosition = currentPlaybackPosition();
+    if (timelinePosition >= maxEnd) { stopMelody(false); return; }
+    followTimelinePosition(maxEnd);
+    drawTimeline();
+    animFrame = requestAnimationFrame(animatePlayhead);
   }
+  followTimelinePosition(maxEnd);
+  drawTimeline();
   animFrame = requestAnimationFrame(animatePlayhead);
 }
 
-function stopMelody() {
+function stopMelody(resetPosition = true) {
+  timelinePosition = resetPosition ? 0 : currentPlaybackPosition();
   playbackGeneration += 1;
+  playbackPending = false;
   window.dispatchEvent(new Event('composer-stop'));
   if (animFrame) cancelAnimationFrame(animFrame);
+  animFrame = null;
   document.getElementById('playingIndicator').classList.remove('active');
   activeOscillators.forEach(o => { try { o.stop(); } catch(e) {} });
   activeOscillators = [];
+  if (workbenchPlayback) {
+    workbenchPlayback.masterGain.disconnect();
+    workbenchPlayback.compressor.disconnect();
+    workbenchPlayback = null;
+  }
+  if (resetPosition) {
+    timelineWindowStart = 0;
+    timelineDrag = null;
+    timelineScrub = null;
+  }
   // Don't close audioCtx — reuse it to avoid mobile issues
   drawTimeline();
+}
+
+function toggleTimelinePlayback() {
+  if (workbenchPlayback || playbackPending) stopMelody(false);
+  else playMelody();
 }
 
 // ─── Export WAV ───
@@ -1412,87 +1521,262 @@ function exportWAV() {
   URL.revokeObjectURL(url);
 }
 
-// ─── Timeline visualization ───
-function drawTimeline(playhead = -1) {
+// ─── Interactive timeline ───
+function timelineGeometry() {
   const canvas = document.getElementById('timeline');
-  const rect = canvas.parentElement.getBoundingClientRect();
-  canvas.width = rect.width - 40;
-  canvas.height = 180;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const width = Math.max(100, canvas.getBoundingClientRect().width || 600);
+  return { width, height: 180, plotWidth: Math.max(1, width - TIMELINE_PAD.l - TIMELINE_PAD.r) };
+}
 
+function maximumTimelineZoom(duration) {
+  return Math.max(32, duration / 0.01);
+}
+
+function timelineView(valid = getValidNotes()) {
+  const duration = scoreDuration(valid);
+  const geometry = timelineGeometry();
+  if (timelineAutoZoom && valid.length) {
+    // Keep a typical short note about 36 CSS pixels wide, regardless of song length.
+    const lengths = valid.map(n => n.dur).sort((a, b) => a - b);
+    const shortNote = lengths[Math.floor((lengths.length - 1) * 0.25)];
+    const pixelsPerSecond = Math.max(60, Math.min(3600, 36 / shortNote));
+    timelineZoom = Math.max(1, duration * pixelsPerSecond / geometry.plotWidth);
+  }
+  timelineZoom = Math.max(1, Math.min(maximumTimelineZoom(duration), timelineZoom));
+  const visible = duration ? duration / timelineZoom : 1;
+  timelineWindowStart = Math.max(0, Math.min(Math.max(0, duration - visible), timelineWindowStart));
+  timelinePosition = Math.max(0, Math.min(duration, timelinePosition));
+  return { ...geometry, duration, visible, start: timelineWindowStart, end: timelineWindowStart + visible };
+}
+
+function timelineTimeText(seconds) {
+  const hundredths = Math.round(Math.max(0, seconds) * 100);
+  return Math.floor(hundredths / 6000) + ':' + (Math.floor(hundredths / 100) % 60).toString().padStart(2, '0') + '.' + (hundredths % 100).toString().padStart(2, '0');
+}
+
+function followTimelinePosition() {
+  const view = timelineView();
+  if (timelinePosition < view.start || timelinePosition >= view.end) {
+    timelineWindowStart = Math.max(0, Math.min(view.duration - view.visible, timelinePosition - view.visible * 0.15));
+  }
+}
+
+function setTimelineZoom(value, anchor, fraction = 0.5) {
+  const view = timelineView();
+  const focus = anchor ?? (timelinePosition >= view.start && timelinePosition <= view.end ? timelinePosition : view.start + view.visible / 2);
+  timelineAutoZoom = false;
+  timelineZoom = Math.max(1, Math.min(maximumTimelineZoom(view.duration), value));
+  timelineWindowStart = focus - fraction * view.duration / timelineZoom;
+  drawTimeline();
+}
+
+function resetTimelineZoom() {
+  timelineAutoZoom = true;
+  followTimelinePosition();
+  drawTimeline();
+}
+
+function updateTimelineControls(view) {
+  const enabled = view.duration > 0;
+  const seek = document.getElementById('timelineSeek');
+  seek.disabled = !enabled;
+  seek.max = String(view.duration);
+  seek.value = String(timelinePosition);
+  seek.setAttribute('aria-valuetext', timelineTimeText(timelinePosition) + ' / ' + timelineTimeText(view.duration));
+  const zoom = document.getElementById('timelineZoom');
+  zoom.disabled = !enabled;
+  zoom.value = String(100 * Math.log(timelineZoom) / Math.log(maximumTimelineZoom(view.duration)));
+  document.getElementById('timelineZoomValue').textContent = (Math.round(timelineZoom * 10) / 10) + '×';
+  const fit = document.getElementById('timelineFit');
+  fit.disabled = !enabled;
+  fit.setAttribute('aria-pressed', String(timelineAutoZoom));
+  const play = document.getElementById('timelinePlay');
+  play.disabled = !enabled;
+  play.textContent = workbenchPlayback || playbackPending ? 'Ⅱ 暂停' : '▶ 播放';
+  const pan = document.getElementById('timelinePan');
+  pan.disabled = !enabled || timelineZoom <= 1;
+  pan.value = String(view.duration > view.visible ? view.start / (view.duration - view.visible) * 1000 : 0);
+  pan.setAttribute('aria-valuetext', view.start.toFixed(2) + '秒起');
+  document.getElementById('timelineTime').textContent = timelineTimeText(timelinePosition) + ' / ' + timelineTimeText(view.duration);
+  document.getElementById('timelineVisibleRange').textContent = view.start.toFixed(2) + '–' + (enabled ? view.end : 0).toFixed(2) + ' 秒';
+  const canvas = document.getElementById('timeline');
+  canvas.setAttribute('aria-valuemax', String(view.duration));
+  canvas.setAttribute('aria-valuenow', String(timelinePosition));
+  canvas.setAttribute('aria-valuetext', timelineTimeText(timelinePosition));
+  canvas.setAttribute('aria-disabled', String(!enabled));
+}
+
+function drawTimeline() {
+  const canvas = document.getElementById('timeline');
   const valid = getValidNotes();
+  const view = timelineView(valid);
+  const dpr = Math.min(3, window.devicePixelRatio || 1);
+  const pixelWidth = Math.round(view.width * dpr), pixelHeight = Math.round(view.height * dpr);
+  if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+  if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, view.width, view.height);
+  updateTimelineControls(view);
   if (!valid.length) {
-    ctx.fillStyle = '#334155';
+    ctx.fillStyle = '#64748b';
     ctx.font = '14px system-ui';
     ctx.textAlign = 'center';
-    ctx.fillText('添加音符后此处显示时间线', canvas.width / 2, 90);
+    ctx.fillText('添加音符后可点击或拖动时间线播放', view.width / 2, 90);
     return;
   }
-
-  const maxEnd = Math.max(...valid.map(n => n.start + n.dur));
+  const pad = TIMELINE_PAD, w = view.plotWidth, h = view.height - pad.t - pad.b;
   const minFreq = Math.min(...valid.map(n => n.freq));
   const maxFreq = Math.max(...valid.map(n => n.freq));
   const freqRange = maxFreq - minFreq || 200;
-  const pad = { l: 55, r: 15, t: 15, b: 30 };
-  const w = canvas.width - pad.l - pad.r;
-  const h = canvas.height - pad.t - pad.b;
+  const xAt = time => pad.l + (time - view.start) / view.visible * w;
 
-  // Grid
+  // Choose readable time ticks according to the visible seconds and screen width.
+  const target = view.visible / Math.max(1, Math.floor(w / 90));
+  const magnitude = Math.pow(10, Math.floor(Math.log10(target)));
+  const tick = [1, 2, 5, 10].map(n => n * magnitude).find(n => n >= target);
   ctx.strokeStyle = '#1e293b';
   ctx.lineWidth = 1;
-  for (let i = 0; i <= 5; i++) {
-    const x = pad.l + (w * i / 5);
+  for (let t = Math.ceil(view.start / tick) * tick; t <= view.end + tick * 0.00001; t += tick) {
+    const x = xAt(t);
     ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, pad.t + h); ctx.stroke();
-    ctx.fillStyle = '#475569';
-    ctx.font = '11px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText((maxEnd * i / 5).toFixed(1) + 's', x, canvas.height - 8);
+    ctx.fillStyle = '#94a3b8'; ctx.font = '11px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(t.toFixed(tick < 0.1 ? 2 : 1) + 's', x, view.height - 8);
   }
-
-  // Frequency axis
   ctx.textAlign = 'right';
   for (let i = 0; i <= 4; i++) {
-    const y = pad.t + h - (h * i / 4);
+    const y = pad.t + h - h * i / 4;
     ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + w, y); ctx.stroke();
-    const f = minFreq - freqRange * 0.1 + (freqRange * 1.2) * i / 4;
-    ctx.fillStyle = '#475569';
-    ctx.fillText(f.toFixed(0) + 'Hz', pad.l - 6, y + 4);
+    ctx.fillStyle = '#64748b';
+    ctx.fillText((minFreq - freqRange * 0.1 + freqRange * 1.2 * i / 4).toFixed(0) + 'Hz', pad.l - 6, y + 4);
   }
-
-  // Colors for notes
+  ctx.save();
+  ctx.beginPath(); ctx.rect(pad.l, 0, w, pad.t + h); ctx.clip();
   const colors = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#f97316'];
-
   valid.forEach((n, i) => {
-    const x = pad.l + (n.start / maxEnd) * w;
-    const bw = (n.dur / maxEnd) * w;
-    const yNorm = (n.freq - (minFreq - freqRange * 0.1)) / (freqRange * 1.2);
-    const y = pad.t + h - yNorm * h;
-
+    if (n.start + n.dur < view.start || n.start > view.end) return;
+    const x = xAt(Math.max(view.start, n.start));
+    const endX = xAt(Math.min(view.end, n.start + n.dur));
+    const y = pad.t + h - (n.freq - (minFreq - freqRange * 0.1)) / (freqRange * 1.2) * h;
     const color = colors[i % colors.length];
-    ctx.fillStyle = color + '40';
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.roundRect(x, y - 10, Math.max(bw, 3), 20, 4);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = color;
-    ctx.font = '10px monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(n.freq + 'Hz', x + 3, y - 14);
+    ctx.fillStyle = color + '40'; ctx.strokeStyle = color; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(x, y - 10, Math.max(endX - x, 3), 20, 4); ctx.fill(); ctx.stroke();
+    if (endX - x >= 34) {
+      ctx.fillStyle = color; ctx.font = '10px monospace'; ctx.textAlign = 'left';
+      ctx.fillText(n.freq + 'Hz', x + 3, y - 14, Math.max(1, endX - x - 4));
+    }
   });
-
-  // Playhead
-  if (playhead >= 0) {
-    const px = pad.l + (playhead / maxEnd) * w;
-    ctx.strokeStyle = '#f43f5e';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([4, 3]);
-    ctx.beginPath(); ctx.moveTo(px, pad.t); ctx.lineTo(px, pad.t + h); ctx.stroke();
-    ctx.setLineDash([]);
+  if (timelinePosition >= view.start && timelinePosition <= view.end) {
+    const x = xAt(timelinePosition);
+    ctx.strokeStyle = '#fb7185'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, pad.t + h); ctx.stroke();
+    ctx.fillStyle = '#fb7185';
+    ctx.beginPath(); ctx.moveTo(x - 5, 3); ctx.lineTo(x + 5, 3); ctx.lineTo(x, 12); ctx.closePath(); ctx.fill();
   }
+  ctx.restore();
+}
+
+function beginTimelineScrub() {
+  if (timelineScrub) return;
+  timelineScrub = { position: currentPlaybackPosition(), resume: !!workbenchPlayback || playbackPending };
+  stopMelody(false);
+}
+
+function previewTimelineSeek(time, reveal = true) {
+  const duration = scoreDuration();
+  timelinePosition = Math.max(0, Math.min(duration, Number.isFinite(time) ? time : 0));
+  if (reveal) followTimelinePosition();
+  drawTimeline();
+}
+
+function finishTimelineScrub() {
+  if (!timelineScrub) return;
+  timelineScrub = null;
+  return playMelody(timelinePosition);
+}
+
+function cancelTimelineScrub() {
+  const previous = timelineScrub;
+  timelineScrub = null;
+  timelineDrag = null;
+  if (!previous) return;
+  previewTimelineSeek(previous.position);
+  if (previous.resume) return playMelody(previous.position);
+}
+
+function timelinePointerTime(event, view, rect) {
+  const fraction = Math.max(0, Math.min(1, (event.clientX - rect.left - TIMELINE_PAD.l) / view.plotWidth));
+  return view.start + fraction * view.visible;
+}
+
+const timelineCanvas = document.getElementById('timeline');
+timelineCanvas.addEventListener('pointerdown', event => {
+  if (event.button !== 0 || event.isPrimary === false || timelineDrag) return;
+  const view = timelineView();
+  if (!view.duration) return;
+  event.preventDefault();
+  timelineCanvas.focus();
+  timelineCanvas.setPointerCapture(event.pointerId);
+  beginTimelineScrub();
+  timelineDrag = { id: event.pointerId, view, rect: timelineCanvas.getBoundingClientRect() };
+  previewTimelineSeek(timelinePointerTime(event, view, timelineDrag.rect), false);
+});
+timelineCanvas.addEventListener('pointermove', event => {
+  if (!timelineDrag || event.pointerId !== timelineDrag.id) return;
+  previewTimelineSeek(timelinePointerTime(event, timelineDrag.view, timelineDrag.rect), false);
+});
+timelineCanvas.addEventListener('pointerup', event => {
+  if (!timelineDrag || event.pointerId !== timelineDrag.id) return;
+  previewTimelineSeek(timelinePointerTime(event, timelineDrag.view, timelineDrag.rect), false);
+  timelineDrag = null;
+  timelineCanvas.releasePointerCapture(event.pointerId);
+  finishTimelineScrub();
+});
+['pointercancel', 'lostpointercapture'].forEach(type => timelineCanvas.addEventListener(type, event => {
+  if (timelineDrag?.id === event.pointerId) cancelTimelineScrub();
+}));
+timelineCanvas.addEventListener('keydown', event => {
+  if (!scoreDuration()) return;
+  const position = currentPlaybackPosition();
+  const step = event.shiftKey ? 10 : 1;
+  const positions = { ArrowLeft: position - step, ArrowRight: position + step, Home: 0, End: scoreDuration() };
+  if (event.key in positions) {
+    event.preventDefault();
+    playMelody(positions[event.key]);
+  } else if (event.code === 'Space' || event.key === ' ') {
+    event.preventDefault(); toggleTimelinePlayback();
+  }
+});
+timelineCanvas.addEventListener('wheel', event => {
+  if (!(event.ctrlKey || event.metaKey)) return;
+  event.preventDefault();
+  const view = timelineView();
+  if (!view.duration) return;
+  const anchor = timelinePointerTime(event, view, timelineCanvas.getBoundingClientRect());
+  const fraction = (anchor - view.start) / view.visible;
+  setTimelineZoom(timelineZoom * Math.exp(-Math.max(-100, Math.min(100, event.deltaY)) * 0.01), anchor, fraction);
+}, { passive: false });
+document.getElementById('timelineZoom').addEventListener('input', event => {
+  setTimelineZoom(Math.pow(maximumTimelineZoom(scoreDuration()), Number(event.target.value) / 100));
+});
+document.getElementById('timelinePan').addEventListener('input', event => {
+  const view = timelineView();
+  timelineWindowStart = Number(event.target.value) / 1000 * (view.duration - view.visible);
+  drawTimeline();
+});
+const timelineSeek = document.getElementById('timelineSeek');
+timelineSeek.addEventListener('pointerdown', () => { if (scoreDuration()) beginTimelineScrub(); });
+timelineSeek.addEventListener('input', event => {
+  const position = Number(event.target.value);
+  beginTimelineScrub();
+  previewTimelineSeek(position);
+});
+timelineSeek.addEventListener('change', finishTimelineScrub);
+timelineSeek.addEventListener('pointerup', finishTimelineScrub);
+timelineSeek.addEventListener('pointercancel', cancelTimelineScrub);
+timelineSeek.addEventListener('blur', () => { if (timelineScrub && !timelineDrag) cancelTimelineScrub(); });
+if (typeof ResizeObserver !== 'undefined') {
+  new ResizeObserver(() => { if (!timelineDrag) drawTimeline(); }).observe(timelineCanvas);
 }
 
 // ─── JSON sync ───
@@ -1557,6 +1841,8 @@ const PRESETS = {
 };
 
 function loadPreset(name) {
+  stopMelody();
+  timelineAutoZoom = true;
   notes = PRESETS[name].map(n => ({
     freq: String(n.freq),
     start: String(n.start),
@@ -1579,6 +1865,8 @@ drawImportedWaveform();
 
 // Community previews reuse the instrument engine without changing the workbench score.
 function setWorkbenchScore(score) {
+  stopMelody();
+  timelineAutoZoom = true;
   notes = score.notes.map(n => ({ freq: String(n.freq), start: String(n.start), dur: String(n.dur), timbre: resolveNoteTimbre(n, score.timbre) }));
   waveType = score.timbre;
   volume = score.volume;

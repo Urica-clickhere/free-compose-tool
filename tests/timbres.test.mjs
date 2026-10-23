@@ -1,30 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import vm from 'node:vm';
+import { app } from './helpers/composer-app.mjs';
 import '../score-model.js';
 import { score as validateScore } from '../lib/validation.js';
 const model = globalThis.ComposerScoreModel;
-const html = await readFile(new URL('../index.html',import.meta.url),'utf8');
-const inline = html.match(/<script>\s*([\s\S]*?)<\/script>/)[1].replace(/\/\/ ─── Init ───[\s\S]*?(?=\/\/ Community previews)/, '');
-const shared = await readFile(new URL('../score-model.js',import.meta.url),'utf8');
-function app() {
-  const elements=new Map(), oscillators=[],events=[];
-  const classList={add(){},remove(){},toggle(){}};
-  const canvas=new Proxy({}, {get:(o,key)=>key in o?o[key]:()=>{},set:(o,k,v)=>(o[k]=v,true)});
-  const el=id=>{if(!elements.has(id)) elements.set(id,{value:'',innerHTML:'',textContent:'',classList,style:{},focus(){this.focused=true;},addEventListener(){},getContext:()=>canvas,parentElement:{getBoundingClientRect:()=>({width:1100,height:200})},getBoundingClientRect:()=>({width:1100,height:200})});return elements.get(id);};
-  const parameter=()=>({value:0,setValueAtTime(value){this.value=value;},linearRampToValueAtTime(){},exponentialRampToValueAtTime(){}});
-  class AudioContext {
-    state='running'; currentTime=0; destination={};
-    resume(){this.state='running';return Promise.resolve();}
-    createGain(){return {gain:parameter(),connect(){},disconnect(){}};}
-    createDynamicsCompressor(){return {threshold:parameter(),knee:parameter(),ratio:parameter(),attack:parameter(),release:parameter(),connect(){},disconnect(){}};}
-    createOscillator(){const o={type:'sine',frequency:parameter(),detune:parameter(),connect(){},disconnect(){},addEventListener(){},start(t){this.startAt=t;},stop(t){this.stopAt=t;}};oscillators.push(o);return o;}
-  }
-  const context={Blob,TextEncoder,Event,console,AudioContext,performance:{now:()=>0},navigator:{clipboard:{writeText(){}}},setTimeout(){return 1;},clearTimeout(){},requestAnimationFrame(){return 1;},cancelAnimationFrame(){},addEventListener(){},dispatchEvent(e){events.push(e.type);},URL:{createObjectURL(blob){context.wav=blob;return 'blob:test';},revokeObjectURL(){}},document:{getElementById:el,addEventListener(){},removeEventListener(){},querySelectorAll:()=>[],createElement:()=>({click(){}})}};
-  context.window=context;vm.createContext(context);vm.runInContext(shared,context);vm.runInContext(inline,context);
-  return {context,el,oscillators,run:code=>vm.runInContext(code,context),getNotes:()=>JSON.parse(vm.runInContext('JSON.stringify(notes)',context))};
-}
 const mixed={notes:[{freq:440,start:0,dur:0.08,timbre:'piano'},{freq:523.25,start:0,dur:0.12,timbre:'strings'},{freq:659.25,start:0.05,dur:0.08,timbre:'guitar'},{freq:783.99,start:0.1,dur:0.08,timbre:'flute'}],timbre:'organ',volume:0.4};
 test('13 timbres; legacy arrays and global scores inherit a stable default; explicit choices survive',()=>{
   assert.equal(model.TIMBRE_KEYS.length,13);
