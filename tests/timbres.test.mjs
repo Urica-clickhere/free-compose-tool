@@ -12,7 +12,7 @@ function app() {
   const elements=new Map(), oscillators=[],events=[];
   const classList={add(){},remove(){},toggle(){}};
   const canvas=new Proxy({}, {get:(o,key)=>key in o?o[key]:()=>{},set:(o,k,v)=>(o[k]=v,true)});
-  const el=id=>{if(!elements.has(id)) elements.set(id,{value:'',innerHTML:'',textContent:'',classList,style:{},addEventListener(){},getContext:()=>canvas,parentElement:{getBoundingClientRect:()=>({width:1100,height:200})},getBoundingClientRect:()=>({width:1100,height:200})});return elements.get(id);};
+  const el=id=>{if(!elements.has(id)) elements.set(id,{value:'',innerHTML:'',textContent:'',classList,style:{},focus(){this.focused=true;},addEventListener(){},getContext:()=>canvas,parentElement:{getBoundingClientRect:()=>({width:1100,height:200})},getBoundingClientRect:()=>({width:1100,height:200})});return elements.get(id);};
   const parameter=()=>({value:0,setValueAtTime(value){this.value=value;},linearRampToValueAtTime(){},exponentialRampToValueAtTime(){}});
   class AudioContext {
     state='running'; currentTime=0; destination={};
@@ -47,6 +47,32 @@ test('default changes affect new rows only; duplication, bulk apply and JSON pre
   a.el('jsonEditor').value='[{"freq":440,"start":0,"dur":0.5}]';a.run("waveType='guitar';importJSON();waveType='pad';syncJSON()");
   assert.equal(JSON.parse(a.el('jsonEditor').value)[0].timbre,'guitar');
   assert.equal((a.el('noteBody').innerHTML.match(/<option/g)||[]).length,13);
+});
+test('insert at the beginning, middle and end preserves existing notes and focuses the new row',()=>{
+  for(const index of [0,2,mixed.notes.length]) {
+    const a=app();a.el('jsonEditor').value=JSON.stringify(mixed);a.run("importJSON();waveType='flute'");
+    const original=a.getNotes();
+    a.run(`insertRow(${index})`);
+    const expected=[...original];expected.splice(index,0,{freq:'',start:'',dur:'',timbre:'flute'});
+    assert.deepEqual(a.getNotes(),expected);
+    assert.equal(a.el(`noteFreq${index}`).focused,true);
+    assert.match(a.el('noteBody').innerHTML,new RegExp(`在音符${index+1}后插入`));
+    a.run(`onInput(${index},'freq','587.33');onInput(${index},'start','0.03');onInput(${index},'dur','0.06')`);
+    const exported=JSON.parse(a.el('jsonEditor').value);
+    assert.equal(exported.length,mixed.notes.length+1);
+    assert.deepEqual(exported[index],{freq:587.33,start:0.03,dur:0.06,timbre:'flute'});
+    a.run(`dupRow(${index});removeRow(${index+1});removeRow(${index})`);
+    assert.deepEqual(a.getNotes(),original);
+  }
+  const empty=app();empty.run('insertRow(0)');assert.equal(empty.getNotes().length,1);
+});
+test('inserted notes are played at their entered time without shifting existing notes',async()=>{
+  const a=app();a.el('jsonEditor').value=JSON.stringify(mixed);
+  a.run("importJSON();waveType='flute';insertRow(2);onInput(2,'freq','587.33');onInput(2,'start','0.03');onInput(2,'dur','0.06')");
+  await a.run('playMelody()');
+  const profiles=a.run('TIMBRES');
+  const expected=a.getNotes().flatMap(n=>profiles[n.timbre].partials.map(([ratio])=>({frequency:Number(n.freq)*ratio,startAt:0.025+Number(n.start)})));
+  assert.deepEqual(a.oscillators.filter(o=>o.frequency.value>0).map(o=>({frequency:o.frequency.value,startAt:o.startAt})),expected);
 });
 test('real-time and community scheduling select individual profiles and preserve simultaneous onsets',async()=>{
   const a=app();a.el('jsonEditor').value=JSON.stringify(mixed);a.run('importJSON()');await a.run('playMelody()');
