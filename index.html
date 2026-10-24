@@ -96,6 +96,11 @@ h1 {
   box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
 }
 
+.note-table input[aria-invalid="true"] { border-color: #ff6b6b; }
+#pitchDisplayMode { background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 8px 10px; font-size: 14px; }
+#pitchDisplayMode:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
+.pitch-error { display: block; color: #ff9090; font-size: 12px; max-width: 230px; }
+
 .note-table input::placeholder {
   color: #334155;
 }
@@ -583,12 +588,20 @@ h1 {
       <span style="flex:1"></span>
       <span class="playing-indicator" id="playingIndicator"><span class="dot-pulse"></span> 播放中...</span>
     </div>
+    <div class="btn-row">
+      <label for="pitchDisplayMode">音高显示模式</label>
+      <select id="pitchDisplayMode" onchange="setPitchDisplayMode(this.value)">
+        <option value="frequency">频率（Hz）</option>
+        <option value="note">音名</option>
+      </select>
+    </div>
+    <p id="pitchInputHelp" class="default-timbre-help">两种模式均可输入频率或音名（如 440、A4、C#4、Db4，支持 ♯ / ♭；不写八度默认第 4 组）。按回车或离开输入框后转换显示。以 A4 = 440 Hz、十二平均律换算；音名显示最近半音，切换模式保留实际频率。</p>
     <div style="overflow-x:auto">
       <table class="note-table" id="noteTable">
         <thead>
           <tr>
             <th style="width:40px">#</th>
-            <th>频率 Hz</th>
+            <th id="pitchColumnTitle">频率 Hz</th>
             <th>开始时间 s</th>
             <th>持续时间 s</th>
             <th style="min-width:170px">音色</th>
@@ -895,6 +908,66 @@ function buildFreqRef() {
   el.innerHTML = html;
 }
 
+// ─── Pitch input / display ───
+let pitchDisplayMode = 'frequency';
+function parsePitch(value) {
+  const text = String(value).trim();
+  if (!text) return '';
+  if (/^[+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?\s*(?:hz)?$/i.test(text)) {
+    const freq = Number(text.replace(/\s*hz$/i, ''));
+    return Number.isFinite(freq) && freq > 0 ? freq : null;
+  }
+  const match = /^([a-g])\s*([#♯b♭]?)\s*([+-]?\d+)?$/i.exec(text);
+  if (!match) return null;
+  const pitch = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[match[1].toUpperCase()];
+  const accidental = /[#♯]/.test(match[2]) ? 1 : /[b♭]/i.test(match[2]) ? -1 : 0;
+  const octave = match[3] === undefined ? 4 : Number(match[3]);
+  const freq = 440 * 2 ** (((octave - 4) * 12 + pitch + accidental - 9) / 12);
+  return Number.isFinite(freq) && freq > 0 ? freq : null;
+}
+function nearestNoteName(freq) {
+  if (!(Number(freq) > 0) || !Number.isFinite(Number(freq))) return '';
+  const midi = Math.round(69 + 12 * (Math.log2(Number(freq)) - Math.log2(440)));
+  return NOTE_NAMES[((midi % 12) + 12) % 12] + (Math.floor(midi / 12) - 1);
+}
+function pitchDisplayValue(freq) {
+  if (freq === '' || freq === null || freq === undefined) return '';
+  return pitchDisplayMode === 'note' ? nearestNoteName(freq) : String(Number(freq));
+}
+function pitchLabel(freq) {
+  return pitchDisplayMode === 'note' ? nearestNoteName(freq) : freq + ' Hz';
+}
+function escapePitchAttribute(value) {
+  return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+}
+function pitchError(note) {
+  return note._pitchDraft !== undefined && parsePitch(note._pitchDraft) === null;
+}
+function onPitchInput(i, value) {
+  const freq = parsePitch(value);
+  notes[i]._pitchDraft = value;
+  onInput(i, 'freq', freq === null ? '' : String(freq));
+  const input = document.getElementById('noteFreq' + i);
+  input.setAttribute('aria-invalid', String(freq === null));
+  document.getElementById('pitchError' + i).textContent = freq === null ? '请输入正数频率或音名，如 A4、C#4、Db4' : '';
+}
+function commitPitchInput(i, input) {
+  const note = notes[i];
+  if (!note || pitchError(note)) return;
+  delete note._pitchDraft;
+  input.value = pitchDisplayValue(note.freq);
+  input.title = note.freq ? note.freq + ' Hz · ' + nearestNoteName(note.freq) : '';
+}
+function setPitchDisplayMode(mode) {
+  if (!['frequency', 'note'].includes(mode)) return;
+  pitchDisplayMode = mode;
+  // Valid drafts are canonical frequencies already; invalid drafts stay visible.
+  notes.forEach(note => { if (!pitchError(note)) delete note._pitchDraft; });
+  document.getElementById('pitchDisplayMode').value = mode;
+  document.getElementById('pitchColumnTitle').textContent = mode === 'note' ? '音名（最近半音）' : '频率 Hz';
+  renderTable();
+}
+
 // ─── Table management ───
 function addRow(freq = '', start = '', dur = '') {
   notes.push({ freq, start, dur, timbre: waveType });
@@ -951,7 +1024,7 @@ function renderTable() {
   tbody.innerHTML = notes.map((n, i) => `
     <tr id="noteRow${i}" class="${n === selectedTimelineNote ? 'note-selected' : ''}" aria-current="${n === selectedTimelineNote}">
       <td class="note-number">${i + 1}</td>
-      <td><input id="noteFreq${i}" aria-label="音符${i + 1}频率" type="number" step="any" min="20" max="20000" placeholder="440" value="${n.freq}" oninput="onInput(${i},'freq',this.value)"></td>
+      <td><input id="noteFreq${i}" aria-label="音符${i + 1}${pitchDisplayMode === 'note' ? '音名' : '频率'}" aria-describedby="pitchInputHelp pitchError${i}" aria-invalid="${pitchError(n)}" type="text" autocomplete="off" spellcheck="false" placeholder="${pitchDisplayMode === 'note' ? 'A4' : '440 / A4'}" value="${escapePitchAttribute(n._pitchDraft ?? pitchDisplayValue(n.freq))}" title="${escapePitchAttribute(n.freq ? n.freq + ' Hz · ' + nearestNoteName(n.freq) : '')}" oninput="onPitchInput(${i},this.value)" onblur="commitPitchInput(${i},this)" onkeydown="if(event.key === 'Enter'){event.preventDefault();commitPitchInput(${i},this)}"><span id="pitchError${i}" class="pitch-error" aria-live="polite">${pitchError(n) ? '请输入正数频率或音名，如 A4、C#4、Db4' : ''}</span></td>
       <td><input aria-label="音符${i + 1}开始时间" type="number" step="any" min="0" placeholder="0.0" value="${n.start}" oninput="onInput(${i},'start',this.value)"></td>
       <td><input aria-label="音符${i + 1}持续时间" type="number" step="any" min="0.01" placeholder="0.5" value="${n.dur}" oninput="onInput(${i},'dur',this.value)"></td>
       <td><select aria-label="音符${i + 1}音色" onchange="onInput(${i},'timbre',this.value)">
@@ -1627,7 +1700,7 @@ function drawTimeline() {
   const valid = getValidNotes(true);
   timelineNoteRects = [];
   const selectedIndex = notes.indexOf(selectedTimelineNote);
-  const selectionText = selectedIndex < 0 ? '点击音符可定位到对应编号' : `已选中第 ${selectedIndex + 1} 个音符 · ${selectedTimelineNote.freq} Hz · 开始 ${selectedTimelineNote.start} 秒`;
+  const selectionText = selectedIndex < 0 ? '点击音符可定位到对应编号' : `已选中第 ${selectedIndex + 1} 个音符 · ${pitchLabel(selectedTimelineNote.freq)} · 开始 ${selectedTimelineNote.start} 秒`;
   const selection = document.getElementById('timelineSelection');
   if (selection.textContent !== selectionText) selection.textContent = selectionText;
   document.getElementById('timelineLocate').disabled = selectedIndex < 0;
@@ -1695,7 +1768,7 @@ function drawTimeline() {
     }
     if (endX - x >= 34) {
       ctx.fillStyle = color; ctx.font = '10px monospace'; ctx.textAlign = 'left';
-      ctx.fillText(n.freq + 'Hz', x + 3, y - 14, Math.max(1, endX - x - 4));
+      ctx.fillText(pitchLabel(n.freq), x + 3, y - 14, Math.max(1, endX - x - 4));
     }
   });
   if (timelinePosition >= view.start && timelinePosition <= view.end) {
@@ -1794,7 +1867,7 @@ timelineCanvas.addEventListener('pointerdown', event => {
 timelineCanvas.addEventListener('pointermove', event => {
   if (!timelineDrag) {
     const hits = timelineNotesAt(event, timelineCanvas.getBoundingClientRect());
-    timelineCanvas.title = hits.length ? hits.map(n => `第 ${n.index + 1} 个音符 · ${n.note.freq} Hz`).join(' / ') : '点击空白处跳转播放';
+    timelineCanvas.title = hits.length ? hits.map(n => `第 ${n.index + 1} 个音符 · ${pitchLabel(n.note.freq)}`).join(' / ') : '点击空白处跳转播放';
     timelineCanvas.style.cursor = hits.length ? 'pointer' : 'crosshair';
     return;
   }
