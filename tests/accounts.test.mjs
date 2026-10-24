@@ -79,6 +79,12 @@ test('account lifecycle and PostgreSQL policies, ownership and legacy migration'
     assert.equal((await a.call('forum','publish',{id,title:'test',author:'forged',description:'',score})).status,201);
     const own=await otherDevice.call('forum',`post&id=${id}`);
     assert.equal(own.data.post.mine,true); assert.equal(own.data.post.author,'alice');
+    assert.equal((await a.call('forum','like',{id,liked:true})).data.post.likes,1);
+    const sameLike=await otherDevice.call('forum','like',{id,liked:true});
+    assert.equal(sameLike.data.post.likes,1); assert.equal(sameLike.data.post.liked,true);
+    assert.equal((await b.call('forum','like',{id,liked:true})).data.post.likes,2);
+    assert.equal((await otherDevice.call('forum','like',{id,liked:false})).data.post.likes,1);
+    assert.equal((await a.call('forum',`post&id=${id}`)).data.post.liked,false);
     assert.equal((await b.call('forum','withdraw',{id})).status,403);
     assert.equal((await b.call('forum','comment',{id,commentId,author:'forged',content:'hello'})).status,201);
     const comments=await a.call('forum',`comments&id=${id}`);

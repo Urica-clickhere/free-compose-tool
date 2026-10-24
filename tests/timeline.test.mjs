@@ -153,3 +153,58 @@ test('empty scores, invalid values and score replacement leave finite, disabled 
   assert.equal(a.run('getValidNotes().length'), 0);
   assert.ok(!a.el('timelineTime').textContent.includes('NaN'));
 });
+
+test('note clicks locate original row numbers through invalid rows, zoom, pan and high DPI without starting playback', async () => {
+  const a = load(longNotes);
+  a.run("insertRow(0);timelinePosition=100;setTimelineZoom(20,100);drawTimeline()");
+  a.context.devicePixelRatio = 3;
+  a.el('timeline').rectWidth = 480;
+  a.run('drawTimeline()');
+  const hit = a.run('timelineNoteRects.find(n => n.index === 101)');
+  assert.ok(hit);
+  const point={button:0,pointerId:20,clientX:hit.x+hit.width/2,clientY:hit.y+10};
+  await a.event('timeline','pointermove',point);
+  assert.match(a.el('timeline').title,/第 102 个音符/);
+  await a.event('timeline','pointerdown',point);
+  await a.event('timeline','pointerup',point);
+  assert.equal(a.run('notes.indexOf(selectedTimelineNote)'),101);
+  assert.equal(a.run('workbenchPlayback'),null);
+  assert.equal(a.oscillators.length,0);
+  assert.equal(a.el('noteRow101').classList.contains('note-selected'),true);
+  assert.equal(a.el('noteRow101').scrolledIntoView.block,'center');
+  assert.equal(a.el('noteFreq101').focused,true);
+  assert.match(a.el('timelineSelection').textContent,/第 102 个音符/);
+  close(a.run('timelinePosition'),100);
+  assert.equal(a.run("Object.hasOwn(getValidNotes()[0], 'index')"),false,'UI indices must not leak into score exports');
+  a.run('insertRow(1)');
+  assert.equal(a.run('notes.indexOf(selectedTimelineNote)'),102);
+  assert.match(a.el('timelineSelection').textContent,/第 103 个音符/);
+  assert.match(a.el('noteBody').innerHTML,/id="noteRow102" class="note-selected"/);
+  a.run('removeRow(102)');
+  assert.equal(a.run('selectedTimelineNote'),null);
+  assert.equal(a.el('timelineLocate').disabled,true);
+});
+
+test('overlapping notes cycle by original number, selection pauses playback, and dragging a note still seeks', async () => {
+  const a=load([{freq:440,start:2,dur:2},{freq:440,start:2,dur:2},{freq:660,start:8,dur:1}]);
+  a.run('setTimelineZoom(1)');
+  let hit=a.run('timelineNoteRects[0]');
+  const point={button:0,pointerId:21,clientX:hit.x+hit.width/2,clientY:hit.y+10};
+  await a.run('playMelody(0)');
+  await a.event('timeline','pointerdown',point); await a.event('timeline','pointerup',point);
+  assert.equal(a.run('notes.indexOf(selectedTimelineNote)'),1);
+  assert.equal(a.run('workbenchPlayback'),null);
+  await a.event('timeline','pointerdown',point); await a.event('timeline','pointerup',point);
+  assert.equal(a.run('notes.indexOf(selectedTimelineNote)'),0);
+  assert.equal(a.el('noteRow1').classList.contains('note-selected'),false);
+  await a.event('timeline','pointerdown',point);
+  await a.event('timeline','pointermove',{...point,clientX:point.clientX+80});
+  await a.event('timeline','pointerup',{...point,clientX:point.clientX+80});
+  assert.ok(a.run('workbenchPlayback'));
+  assert.equal(a.run('notes.indexOf(selectedTimelineNote)'),0,'dragging does not change note selection');
+  const before=a.run('currentPlaybackPosition()');
+  await a.event('timeline','pointerdown',point);
+  await a.event('timeline','pointercancel',point);
+  close(a.run('workbenchPlayback.offset'),before);
+  a.run('clearAll()'); assert.equal(a.run('timelineNoteRects.length'),0);
+});
