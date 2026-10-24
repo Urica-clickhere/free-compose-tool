@@ -607,10 +607,10 @@ h1 {
       </select>
     </div>
     <div class="btn-row">
-      <label for="jianpuTempo">BPM（四分音符 / 分钟）</label>
-      <input id="jianpuTempo" type="number" min="20" max="300" step="any" value="120" style="width:90px" onchange="setComposerBpm(this.value)" onkeydown="if(event.key === 'Enter'){event.preventDefault();setComposerBpm(this.value)}">
+      <label for="jianpuTempo">BPM（可选）</label>
+      <input id="jianpuTempo" type="number" min="20" max="300" step="any" value="" placeholder="不设置" style="width:90px" onchange="setComposerBpm(this.value)" onkeydown="if(event.key === 'Enter'){event.preventDefault();setComposerBpm(this.value)}">
     </div>
-    <p id="durationGridHelp" class="default-timbre-help">最短时长 / 每次调节：<span id="durationGridValue">0.125</span> 秒（1/4 拍 = 15 ÷ BPM）。手填时长按回车或离开后补足最小值；调整 BPM 会补足过短音符，其余时长不变。导入保留原时长，编辑时应用此下限。</p>
+    <p id="durationGridHelp" class="default-timbre-help">最短时长 / 每次调节：<span id="durationGridValue">0.01</span> 秒。<span id="durationGridRule">未设置 BPM，按秒自由编辑；填写后按 1/4 拍（15 ÷ BPM 秒）调节。</span> 清空 BPM 即关闭节拍限制。导入保留原时长，编辑时应用当前下限。</p>
     <p id="tempoStatus" class="default-timbre-help" role="status" aria-live="polite"></p>
     <div id="jianpuPanel" hidden>
       <div class="btn-row">
@@ -638,7 +638,7 @@ h1 {
         <label for="jianpuCopy3">高音</label><input id="jianpuCopy3" type="text" readonly aria-label="高音简谱复制框" value="1̇ 2̇ 3̇ 4̇ 5̇ 6̇ 7̇" ><button type="button" class="btn btn-secondary" onclick="copyJianpuRow('jianpuCopy3')">复制</button>
         <label for="jianpuCopy4">高两组</label><input id="jianpuCopy4" type="text" readonly aria-label="高两组简谱复制框" value="1̈ 2̈ 3̈ 4̈ 5̈ 6̈ 7̈" ><button type="button" class="btn btn-secondary" onclick="copyJianpuRow('jianpuCopy4')">复制</button>
       </div>
-      <label for="jianpuSequence">快速编曲（每个数字一拍，追加到末尾）</label>
+      <label id="jianpuSequenceLabel" for="jianpuSequence">快速编曲（每个数字 0.5 秒，追加到末尾）</label>
       <textarea id="jianpuSequence" rows="2" spellcheck="false" placeholder="例如：12345 5 6 6 5 或粘贴带点数字"></textarea>
       <div class="btn-row">
         <button type="button" class="btn btn-primary" onclick="appendJianpu()">追加这段简谱</button>
@@ -1018,8 +1018,9 @@ function appendJianpu() {
   const status = document.getElementById('jianpuStatus');
   const text = document.getElementById('jianpuSequence').value.trim();
   if (!text) { status.textContent = '请先输入旋律，如 123455。'; return; }
-  const bpm = Number(document.getElementById('jianpuTempo').value);
-  if (!Number.isFinite(bpm) || bpm < 20 || bpm > 300) { status.textContent = '速度请填写 20–300 BPM。'; return; }
+  const tempoText = document.getElementById('jianpuTempo').value.trim();
+  const bpm = tempoText === '' ? null : Number(tempoText);
+  if (bpm !== null && (!Number.isFinite(bpm) || bpm < 20 || bpm > 300)) { status.textContent = '速度请填写 20–300 BPM。'; return; }
   const frequencies = [];
   const token = /([#♯b♭]?[1-7][\u0307\u0308\u0323\u0324'’,]*)/y;
   for (let i = 0; i < text.length;) {
@@ -1037,11 +1038,11 @@ function appendJianpu() {
     const time = Number(note.start) + Number(note.dur);
     return Number.isFinite(time) ? Math.max(end, time) : end;
   }, 0);
-  const beat = 60 / bpm;
+  const beat = bpm === null ? 0.5 : 60 / bpm;
   const newNotes = frequencies.map((freq, i) => ({ freq: String(freq), start: String(start + i * beat), dur: String(beat), timbre: waveType }));
   notes.push(...newNotes);
   renderTable();
-  status.textContent = '已在末尾追加 ' + frequencies.length + ' 个音符，每个音符一拍。';
+  status.textContent = '已在末尾追加 ' + frequencies.length + ' 个音符，' + (bpm === null ? '每个音符 0.5 秒。' : '每个音符一拍。');
 }
 
 // ─── Pitch input / display ───
@@ -1114,25 +1115,25 @@ function setPitchDisplayMode(mode) {
 }
 
 // ─── Tempo-based duration editing ───
-let composerBpm = 120;
+let composerBpm = null;
 function durationStep() {
-  return Number((15 / composerBpm).toPrecision(12));
+  return composerBpm === null ? 0.01 : Number((15 / composerBpm).toPrecision(12));
 }
 function setComposerBpm(value) {
-  const bpm = Number(value);
+  const bpm = String(value).trim() === '' ? null : Number(value);
   const input = document.getElementById('jianpuTempo');
   const status = document.getElementById('tempoStatus');
-  if (!Number.isFinite(bpm) || bpm < 20 || bpm > 300) {
-    input.value = String(composerBpm);
+  if (bpm !== null && (!Number.isFinite(bpm) || bpm < 20 || bpm > 300)) {
+    input.value = composerBpm === null ? '' : String(composerBpm);
     status.textContent = 'BPM 请输入 20–300 之间的数值，已保留原设置。';
     return false;
   }
   const changed = bpm !== composerBpm;
   composerBpm = bpm;
-  input.value = String(bpm);
+  input.value = bpm === null ? '' : String(bpm);
   const step = durationStep();
   let adjusted = 0;
-  if (changed) {
+  if (changed && bpm !== null) {
     for (const note of notes) {
       if (String(note.dur).trim() !== '' && Number.isFinite(Number(note.dur)) && Number(note.dur) < step) {
         note.dur = String(step);
@@ -1141,6 +1142,8 @@ function setComposerBpm(value) {
     }
   }
   document.getElementById('durationGridValue').textContent = String(step);
+  document.getElementById('durationGridRule').textContent = bpm === null ? '未设置 BPM，按秒自由编辑；填写后按 1/4 拍（15 ÷ BPM 秒）调节。' : '已启用 1/4 拍（15 ÷ BPM 秒）刻度；修改 BPM 会补足过短音符，其余时长不变。';
+  document.getElementById('jianpuSequenceLabel').textContent = bpm === null ? '快速编曲（每个数字 0.5 秒，追加到末尾）' : '快速编曲（每个数字一拍，追加到末尾）';
   status.textContent = adjusted ? '已将 ' + adjusted + ' 个过短音符的持续时间补到 ' + step + ' 秒。' : '';
   renderTable();
   return true;
@@ -1233,8 +1236,8 @@ function renderTable() {
       <td><div class="duration-control">
         <input id="noteDur${i}" class="duration-input" aria-label="音符${i + 1}持续时间" aria-describedby="durationGridHelp" type="number" step="${durationStep()}" min="${durationStep()}" placeholder="${durationStep()}" value="${n.dur}" oninput="onInput(${i},'dur',this.value)" onblur="commitDuration(${i},this)" onkeydown="durationKey(${i},event)">
         <div class="duration-buttons">
-          <button type="button" aria-label="增加音符${i + 1}持续时间四分之一拍" title="增加 1/4 拍" onclick="stepDuration(${i},1)">▲</button>
-          <button type="button" aria-label="减少音符${i + 1}持续时间四分之一拍" title="减少 1/4 拍" onclick="stepDuration(${i},-1)">▼</button>
+          <button type="button" aria-label="增加音符${i + 1}持续时间" title="增加 ${composerBpm === null ? '0.01 秒' : '1/4 拍'}" onclick="stepDuration(${i},1)">▲</button>
+          <button type="button" aria-label="减少音符${i + 1}持续时间" title="减少 ${composerBpm === null ? '0.01 秒' : '1/4 拍'}" onclick="stepDuration(${i},-1)">▼</button>
         </div>
       </div></td>
       <td><select aria-label="音符${i + 1}音色" onchange="onInput(${i},'timbre',this.value)">
