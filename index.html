@@ -648,10 +648,16 @@ h1 {
 
   <!-- JSON Editor -->
   <div class="section">
-    <div class="section-title">JSON 编辑器（高级）</div>
+    <div class="section-title">JSON 文件导入 / 编辑</div>
+    <div class="btn-row">
+      <button id="jsonFileButton" class="btn btn-primary" type="button" onclick="document.getElementById('jsonFileInput').click()">选择 JSON 文件</button>
+      <input id="jsonFileInput" type="file" accept=".json,application/json" hidden>
+    </div>
+    <p class="waveform-help">选择本地 JSON 乐谱即可导入并替换当前编曲（最大 1 MB）。也可以在下方粘贴内容。文件仅在浏览器内读取。</p>
+    <p id="jsonImportStatus" class="waveform-help" role="status" aria-live="polite"></p>
     <textarea id="jsonEditor" spellcheck="false"></textarea>
     <div class="btn-row">
-      <button class="btn btn-primary" onclick="importJSON()">导入 JSON</button>
+      <button class="btn btn-primary" onclick="importJSON()">导入编辑框内容</button>
       <button class="btn btn-secondary" onclick="exportJSON()">导出到 JSON</button>
     </div>
   </div>
@@ -1868,15 +1874,43 @@ function syncJSON() {
   );
 }
 
+function importScoreText(text) {
+  const data = readScoreDocument(JSON.parse(text.replace(/^\uFEFF/, '')), waveType, volume);
+  setWorkbenchScore(data);
+  renderTable();
+  return data.notes.length;
+}
+
 function importJSON() {
   try {
-    const data = readScoreDocument(JSON.parse(document.getElementById('jsonEditor').value), waveType, volume);
-    setWorkbenchScore(data);
-    renderTable();
+    const count = importScoreText(document.getElementById('jsonEditor').value);
+    document.getElementById('jsonImportStatus').textContent = '已导入 ' + count + ' 个音符。';
   } catch (e) {
-    alert('JSON 解析失败: ' + e.message);
+    document.getElementById('jsonImportStatus').textContent = '导入失败，当前编曲未更改：' + e.message;
   }
 }
+
+document.getElementById('jsonFileInput').addEventListener('change', async event => {
+  const input = event.target;
+  const file = input.files?.[0];
+  if (!file) return;
+  const button = document.getElementById('jsonFileButton');
+  const status = document.getElementById('jsonImportStatus');
+  button.disabled = true;
+  input.disabled = true;
+  status.textContent = '正在读取乐谱…';
+  try {
+    if (file.size > 1024 * 1024) throw new Error('文件超过 1 MB，请选择较小的 JSON 乐谱');
+    const count = importScoreText(await file.text());
+    status.textContent = '已导入「' + file.name + '」，共 ' + count + ' 个音符。';
+  } catch (e) {
+    status.textContent = '导入失败，当前编曲未更改：' + e.message;
+  } finally {
+    input.value = '';
+    input.disabled = false;
+    button.disabled = false;
+  }
+});
 
 function exportJSON() {
   syncJSON();
