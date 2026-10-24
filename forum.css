@@ -53,6 +53,10 @@
 .comment-form input { max-width: 300px; }
 .comment-form .btn { margin-top: 12px; }
 .btn:disabled { cursor: wait; opacity: 0.55; }
+.account-tabs { display: flex; gap: 8px; }
+.account-section-title { margin-top: 28px; font-size: 17px; }
+.account-logout { margin-top: 24px; }
+input[readonly] { opacity: 0.75; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
 @media (max-width: 620px) {
   .forum-grid { grid-template-columns: 1fr; }

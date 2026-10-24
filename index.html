@@ -490,6 +490,7 @@ h1 {
     <button type="button" id="composeTab" class="nav-tab active" aria-pressed="true">编曲工作台</button>
     <button type="button" id="communityTab" class="nav-tab" aria-pressed="false">作品社区</button>
     <button type="button" id="shareCurrent" class="btn btn-success">发布当前编曲</button>
+    <button type="button" id="accountButton" class="btn btn-secondary">登录 / 注册</button>
   </nav>
   <div id="composerView">
 
@@ -685,10 +686,10 @@ h1 {
       <div class="dialog-heading"><h2 id="publishHeading">发布你的编曲</h2><button id="closePublish" type="button" class="btn btn-secondary" aria-label="关闭发布窗口">关闭</button></div>
       <p class="forum-muted">分享当前乐谱和音色，大家可以直接试听和导入。最长4分钟（240秒），最多512个音符。</p>
       <label for="publishTitle">作品标题</label><input id="publishTitle" name="title" required maxlength="80" placeholder="给这段旋律起个名字">
-      <label for="publishAuthor">你的昵称</label><input id="publishAuthor" name="author" required maxlength="24" autocomplete="nickname" placeholder="大家怎么称呼你">
+      <label for="publishAuthor">发布账号</label><input id="publishAuthor" name="author" readonly maxlength="24" autocomplete="off">
       <label for="publishDescription">作品介绍（可选）</label><textarea id="publishDescription" name="description" maxlength="2000" rows="4" placeholder="创作灵感、心情，或者想听到的建议"></textarea>
       <p id="publishSummary" class="forum-muted"></p>
-      <p class="forum-muted">无需注册。请分享你有权发布的内容；此浏览器可以撤回自己发布的作品和评论，清除网站数据或换设备后将无法管理它们。上传的音频波形文件不会随乐谱发布。</p>
+      <p class="forum-muted">作品将绑定到你的账号，换设备登录也能管理。请分享你有权发布的内容。上传的音频波形文件不会随乐谱发布。</p>
       <p id="publishError" class="forum-error" role="alert"></p>
       <button id="publishSubmit" type="submit" class="btn btn-success">公开发布</button>
     </form>
@@ -1909,6 +1910,35 @@ window.ComposerForum = {
   }
 };
 </script>
+<dialog id="accountDialog" class="forum-dialog" aria-labelledby="accountHeading">
+  <div class="dialog-heading"><h2 id="accountHeading">登录账号</h2><button id="accountClose" type="button" class="btn btn-secondary">关闭</button></div>
+  <div id="accountGuest">
+    <div class="account-tabs"><button id="loginTab" type="button" class="nav-tab active" aria-pressed="true">登录</button><button id="registerTab" type="button" class="nav-tab" aria-pressed="false">注册</button></div>
+    <form id="accountForm">
+      <label for="accountUsername">账号</label><input id="accountUsername" name="username" required minlength="3" maxlength="24" pattern="[A-Za-z0-9_]{3,24}" autocomplete="username" autocapitalize="none" spellcheck="false" aria-describedby="usernameHelp">
+      <p id="usernameHelp" class="forum-muted">3–24位字母、数字或下划线，不区分大小写。</p>
+      <label for="accountPassword">密码</label><input id="accountPassword" name="password" type="password" required minlength="10" maxlength="128" autocomplete="current-password">
+      <div id="registrationFields" hidden><label for="accountPasswordConfirm">确认密码</label><input id="accountPasswordConfirm" name="confirmPassword" type="password" minlength="10" maxlength="128" autocomplete="new-password" disabled><p class="forum-muted">无需手机号或邮箱。同一网络24小时内最多注册3个账号。密码至少10位，请保存到密码管理器；目前不提供忘记密码找回。</p></div>
+      <p class="forum-muted">登录有效期7天。公共设备使用后请退出登录。</p>
+      <button id="accountSubmit" type="submit" class="btn btn-primary">登录</button>
+    </form>
+  </div>
+  <div id="accountMember" hidden>
+    <p id="accountName" class="forum-muted"></p>
+    <p class="forum-muted">登录后发布的作品和评论会保存在账号下。旧版匿名发布的内容可从原浏览器认领，绑定后无法转给其他账号。</p>
+    <button id="claimLegacy" type="button" class="btn btn-secondary">将此浏览器的旧作品绑定到本账号</button>
+    <form id="passwordForm">
+      <h3 class="account-section-title">修改密码</h3>
+      <input id="passwordUsername" class="sr-only" name="username" autocomplete="username" readonly tabindex="-1" aria-label="当前账号">
+      <label for="currentPassword">当前密码</label><input id="currentPassword" name="currentPassword" type="password" required minlength="10" maxlength="128" autocomplete="current-password">
+      <label for="newPassword">新密码</label><input id="newPassword" name="newPassword" type="password" required minlength="10" maxlength="128" autocomplete="new-password">
+      <label for="newPasswordConfirm">确认新密码</label><input id="newPasswordConfirm" name="confirmPassword" type="password" required minlength="10" maxlength="128" autocomplete="new-password">
+      <p class="forum-muted">修改后其他设备需要重新登录。</p><button type="submit" class="btn btn-primary">保存新密码</button>
+    </form>
+    <button id="accountLogout" type="button" class="btn btn-secondary account-logout">退出登录</button>
+  </div>
+  <p id="accountMessage" class="forum-error" role="status" aria-live="polite"></p>
+</dialog>
 <script type="module" src="/forum.js"></script>
 </body>
 </html>
