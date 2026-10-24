@@ -1,8 +1,8 @@
+import { accounts } from './accounts.js';
 const $ = id => document.getElementById(id);
 const composer = window.ComposerForum;
 const { MAX_COMMUNITY_DURATION_SECONDS, TIMBRE_KEYS, scoreTimbres } = window.ComposerScoreModel;
-const state = { page: 0, posts: new Map(), detail: null, generation: 0, mine: false, query: '', playing: null, timer: null, publish: null, nickname: '' };
-try { state.nickname = localStorage.getItem('composer_nickname') || ''; } catch {}
+const state = { page: 0, posts: new Map(), detail: null, generation: 0, mine: false, query: '', playing: null, timer: null, publish: null, commentDraft: null };
 const date = value => new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 const duration = value => `${Number(value).toFixed(1)} 秒`;
 function node(tag, cls, content) {
@@ -21,10 +21,6 @@ function notice(message) {
   $('forumNotice').textContent = message;
   clearTimeout(noticeTimer);
   noticeTimer = setTimeout(() => { $('forumNotice').textContent = ''; }, 6000);
-}
-function nickname(value) {
-  state.nickname = value.trim();
-  try { localStorage.setItem('composer_nickname', state.nickname); } catch {}
 }
 function confirmAction(title, message, label) {
   const dialog = $('confirmDialog');
@@ -50,6 +46,7 @@ function confirmAction(title, message, label) {
   });
 }
 async function api(action, params = {}, body) {
+  if (body && !['withdraw','withdraw-comment'].includes(action) && !await accounts.require()) throw new Error('登录后请再次提交，内容已保留');
   const query = new URLSearchParams({ action, ...params });
   const response = await fetch(`/api/forum?${query}`, {
     method: body ? 'POST' : 'GET',
@@ -59,7 +56,10 @@ async function api(action, params = {}, body) {
     signal: AbortSignal.timeout(30000)
   }).catch(() => { throw new Error('网络连接失败，请检查网络后重试'); });
   const data = await response.json().catch(() => { throw new Error('社区暂时不可用，请稍后重试'); });
-  if (!response.ok) throw new Error(data.error || '操作失败，请稍后重试');
+  if (!response.ok) {
+    if (response.status === 401) { await accounts.refresh().catch(() => {}); accounts.open(); }
+    throw new Error(data.error || '操作失败，请稍后重试');
+  }
   return data;
 }
 function stopPreview() {
@@ -244,9 +244,10 @@ async function loadDetail(id) {
     });
     appendComments(initialComments);
     const form = node('form', 'comment-form');
-    const author = field(form, '你的昵称', 'commentAuthor', 'text', 24, '大家怎么称呼你'); author.value = state.nickname; author.autocomplete = 'nickname';
+    const author = field(form, '评论账号', 'commentAuthor', 'text', 24, '登录后可发表评论'); author.value = accounts.user?.username || ''; author.readOnly = true; author.required = false;
     const content = field(form, '写下评论', 'commentContent', 'textarea', 1000, '说说你听到的灵感，或者给作者一些建议');
-    const info = node('p', 'forum-muted', '无需注册；此浏览器可撤回自己的评论。');
+    if (state.commentDraft?.id === id) content.value = state.commentDraft.content;
+    const info = node('p', 'forum-muted', '登录后发表评论，换设备也能管理自己的评论。');
     const errorEl = node('p', 'forum-error'); errorEl.setAttribute('role', 'alert');
     const submit = node('button', 'btn btn-primary', '发表评论'); submit.type = 'submit';
     let commentId = crypto.randomUUID();
@@ -254,7 +255,7 @@ async function loadDetail(id) {
       event.preventDefault(); errorEl.textContent = ''; submit.disabled = true;
       try {
         await api('comment', {}, { id, commentId, author: author.value, content: content.value });
-        nickname(author.value); commentId = crypto.randomUUID(); composer.stop();
+        state.commentDraft = null; commentId = crypto.randomUUID(); composer.stop();
         await loadDetail(id); notice('评论已发布');
       } catch (error) { errorEl.textContent = error.message; }
       finally { submit.disabled = false; }
@@ -268,11 +269,12 @@ async function loadDetail(id) {
     view.replaceChildren(empty);
   }
 }
-function openPublish() {
+async function openPublish() {
+  if (!await accounts.require()) return;
   const score = composer.snapshot();
   if (!validScore(score)) { notice(`请先完成有效乐谱：1–512个音符，频率20–20000 Hz，总时长不超过4分钟（${MAX_COMMUNITY_DURATION_SECONDS}秒）`); return; }
   state.publish = { id: crypto.randomUUID(), score };
-  $('publishAuthor').value = state.nickname;
+  $('publishAuthor').value = accounts.user.username;
   $('publishError').textContent = '';
   $('publishSummary').textContent = `本次分享：${score.notes.length} 个音符 · ${duration(Math.max(...score.notes.map(n => n.start + n.dur)))} · ${scoreTimbres(score).map(key => composer.timbreName(key)).join(' / ')}`;
   $('publishDialog').showModal();
@@ -284,7 +286,6 @@ $('publishForm').addEventListener('submit', async event => {
   $('publishSubmit').disabled = true; $('publishError').textContent = '';
   try {
     const { id } = await api('publish', {}, { ...state.publish, title: $('publishTitle').value, author: $('publishAuthor').value, description: $('publishDescription').value });
-    nickname($('publishAuthor').value);
     $('publishDialog').close(); $('publishForm').reset(); state.publish = null;
     location.hash = `work/${id}`; notice('作品已发布，可以复制链接分享给朋友');
   } catch (error) { $('publishError').textContent = error.message; }
@@ -313,4 +314,11 @@ function route() {
   else { ++state.generation; state.detail = null; composer.refresh(); }
 }
 window.addEventListener('hashchange', route);
-route();
+window.addEventListener('account-change', () => {
+  state.posts.clear();
+  const draft = $('commentContent');
+  if (draft && state.detail) state.commentDraft = { id: state.detail, content: draft.value };
+  $('publishAuthor').value = accounts.user?.username || '';
+  if (location.hash === '#community' || location.hash.startsWith('#work/')) route();
+});
+accounts.ready.then(route);

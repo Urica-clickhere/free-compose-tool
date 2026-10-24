@@ -17,7 +17,7 @@ test('community client and server accept up to four minutes and reject any later
   const source = await readFile(new URL('../forum.js', import.meta.url), 'utf8');
   const context = vm.createContext({ window: { ComposerScoreModel: globalThis.ComposerScoreModel, addEventListener() {} } });
   // Run the actual client validation and its initialization without loading the community feed.
-  vm.runInContext(source.slice(0, source.indexOf('async function fetchPost(')), context);
+  vm.runInContext(source.slice(source.indexOf('const $ ='), source.indexOf('async function fetchPost(')), context);
   for (const [start, dur, accepted] of [[0, 120, true], [120, 1, true], [0, 239.999, true], [0, 240, true], [239, 1, true], [239.999, 0.002, false], [0, 240.001, false], [240, 1, false]]) {
     const input = { ...valid, notes: [{ freq: 440, start, dur }, ...valid.notes] };
     assert.equal(context.validScore(input), accepted, `client: ${start} + ${dur}`);

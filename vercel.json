@@ -2,5 +2,5 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "npm run build",
   "outputDirectory": "public",
-  "functions": { "api/forum.js": { "maxDuration": 30 } }
+  "functions": { "api/forum.js": { "maxDuration": 30 }, "api/auth.js": { "maxDuration": 30 } }
 }

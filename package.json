@@ -3,7 +3,9 @@
   "version": "1.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "node --env-file-if-exists=.env.local scripts/dev.mjs",
     "build": "node scripts/build.mjs",
@@ -11,5 +13,13 @@
     "test": "node --test tests/*.test.mjs",
     "test:integration": "node --env-file-if-exists=.env.local --test tests/integration.mjs"
   },
-  "dependencies": { "@neondatabase/serverless": "^1.0.2" }
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
+    "better-auth": "^1.7.12",
+    "ipaddr.js": "^2.5.0",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.11"
+  }
 }

@@ -11,11 +11,15 @@
 - 从工作台发布乐谱、逐音符音色、音量、标题和创作介绍
 - 浏览、搜索、试听、点赞、评论，复制作品链接
 - 导入社区作品继续编曲，导入前会提醒保存当前作品
-- 昵称发布，无需注册；原浏览器可撤回自己的作品和评论
+- 账号密码注册和登录，跨设备管理自己的作品和评论；浏览、试听和本地编曲无需登录
 - 乐谱存储在Neon Postgres，通过Vercel Functions访问；浏览器不会获得数据库密钥
 - 每首作品最多512个音符、4分钟（240秒，含上限）；试听复用工作台的音色合成模型
 
-作品归属由HttpOnly访客Cookie确定。换设备或清除网站数据后无法管理原有内容；这一版不包含跨设备账号。上传到波形查看器的音频文件仍在浏览器本地，不会发布到论坛。
+发布、评论、点赞和举报需要登录。账号为3–24位字母、数字或下划线（不区分大小写），密码为10–128个字符。Better Auth负责加盐scrypt哈希和数据库会话，密码不会明文保存。登录有效期7天；修改密码会撤销其他设备的会话，退出会立即撤销当前会话。
+
+同一IP在滚动24小时内最多注册3个账号；IPv6按/64网段计数。注册额度用数据库事务和锁保障，登录尝试也在数据库中限频。IP限制可以抑制批量注册，不能代替真实身份验证；共享网络会共享额度。IP限流键保存为HMAC摘要，原始IP不写入账号数据库。
+
+无需手机或邮箱，不发送短信，也不提供忘记密码找回。请使用密码管理器。旧版访客可在原浏览器登录后，从“我的账号”认领旧作品和评论；仅凭昵称不能认领，清除旧Cookie后无法认领。未认领的旧内容仍可在原浏览器退出账号后撤回。上传到波形查看器的音频文件仍在浏览器本地，不会发布到社区。
 
 ### 本地开发与部署
 
@@ -24,22 +28,26 @@
 ```sh
 npm ci
 # 将 .env.example 复制为 .env.local，设置自己的 DATABASE_URL
+# 用随机生成的至少32字符密钥填写 BETTER_AUTH_SECRET（不要提交到仓库）
+# BETTER_AUTH_URL 本地为 http://localhost:3000，线上为正式站点地址
 npm run db:migrate
 npm run dev
 ```
 
-在Vercel项目中连接Neon并配置`DATABASE_URL`，再部署仓库。首次请求会创建`composer_`前缀的社区数据表。构建只公开`index.html`、`forum.js`、`forum.css`和`score-model.js`，后端源码和环境文件不会进入静态输出。
+在Vercel项目中连接Neon并配置`DATABASE_URL`和服务端Secret `BETTER_AUTH_SECRET`，再部署仓库。预览和正式环境使用不同的随机密钥。首次请求会创建`composer_`前缀的社区和认证数据表；认证表迁移由数据库锁串行保护。构建只公开`index.html`、`forum.js`、`forum.css`、`score-model.js`和`accounts.js`，后端源码和环境文件不会进入静态输出。公开认证接口仅允许注册、登录、查询当前账号、退出、改密码和认领；不公开认证库的其他路由。
 
 ```sh
 npm run build
 npm test
-# 指向待验证的预览或正式环境，临时测试作品会在结束时撤回
-FORUM_BASE_URL=https://your-deployment.vercel.app npm run test:integration
+# 用独立测试账号验证预览/正式环境，测试作品会在结束时撤回
+# 凭据JSON为 {"owner":{"username":"...","password":"..."},"other":{"username":"...","password":"..."}}
+# 仅第一次注册测试账号时设置 TEST_REGISTER_ACCOUNTS=1；会计入IP注册额度
+FORUM_BASE_URL=https://your-deployment.vercel.app TEST_ACCOUNTS_FILE=./work/test-accounts.json npm run test:integration
 ```
 
 ### 管理与数据
 
-作品和评论撤回采用软删除。用户可以举报作品，记录保存在`composer_reports`，当前需维护者在数据库中查看并处理（这一版不包含管理后台）。数据库采用参数化查询；社区用户文本以纯文本渲染。写入须同源请求，发布和互动按访客及来源IP限制频率。
+作品和评论撤回采用软删除。用户可以举报作品，记录保存在`composer_reports`，当前需维护者在数据库中查看并处理（这一版不包含管理后台）。数据库采用参数化查询；社区用户文本以纯文本渲染。写入须同源JSON请求，发布和互动按账号及来源IP限制频率。只有Vercel覆盖的来源IP头用于账号限流；本地开发统一使用本地额度。
 
 备份和恢复通过Neon控制台管理。预览和正式环境连接同一数据库时会共享社区内容；自动验证创建的临时作品与评论会撤回，但软删除记录仍保留。
 
@@ -101,7 +109,8 @@ FORUM_BASE_URL=https://your-deployment.vercel.app npm run test:integration
 
 ## 技术栈
 
-- 纯 HTML + CSS + JavaScript，单文件，零依赖
+- 浏览器端原生 HTML + CSS + JavaScript，Web Audio编曲核心无需框架
+- Vercel Functions + Neon Postgres；Better Auth账密认证和会话管理
 - Web Audio API 实时合成（加法合成 + 动态包络 + 压缩保护）
 - Canvas 时间线绘制
 
