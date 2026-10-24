@@ -102,6 +102,13 @@ h1 {
 .jianpu-copy-grid { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; margin: 16px 0; }
 .jianpu-copy-grid input { min-width: 0; width: 100%; background: #0f172a; color: #e2e8f0; padding: 12px 8px; border: 1px solid #334155; border-radius: 6px; font-size: 22px; line-height: 1.8; }
 #jianpuSequence { min-height: 80px; font-size: 22px; line-height: 1.8; }
+.duration-control { display: flex; align-items: stretch; min-width: 150px; }
+.note-table .duration-input { min-width: 0; appearance: textfield; -moz-appearance: textfield; }
+.duration-input::-webkit-inner-spin-button, .duration-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.duration-buttons { display: flex; flex-direction: column; margin-left: 3px; }
+.duration-buttons button { min-width: 28px; min-height: 22px; color: #cbd5e1; background: #1e293b; border: 1px solid #334155; border-radius: 3px; cursor: pointer; }
+.duration-buttons button:hover { background: #334155; }
+.duration-buttons button:focus-visible { outline: 2px solid #60a5fa; outline-offset: 1px; }
 .pitch-error { display: block; color: #ff9090; font-size: 12px; max-width: 230px; }
 
 .note-table input::placeholder {
@@ -599,6 +606,12 @@ h1 {
         <option value="jianpu">新手简谱（1–7）</option>
       </select>
     </div>
+    <div class="btn-row">
+      <label for="jianpuTempo">BPM（四分音符 / 分钟）</label>
+      <input id="jianpuTempo" type="number" min="20" max="300" step="any" value="120" style="width:90px" onchange="setComposerBpm(this.value)" onkeydown="if(event.key === 'Enter'){event.preventDefault();setComposerBpm(this.value)}">
+    </div>
+    <p id="durationGridHelp" class="default-timbre-help">最短时长 / 每次调节：<span id="durationGridValue">0.125</span> 秒（1/4 拍 = 15 ÷ BPM）。手填时长按回车或离开后补足最小值；调整 BPM 会补足过短音符，其余时长不变。导入保留原时长，编辑时应用此下限。</p>
+    <p id="tempoStatus" class="default-timbre-help" role="status" aria-live="polite"></p>
     <div id="jianpuPanel" hidden>
       <div class="btn-row">
         <label for="jianpuKey">大调（中央音区的 1）</label>
@@ -628,7 +641,6 @@ h1 {
       <label for="jianpuSequence">快速编曲（每个数字一拍，追加到末尾）</label>
       <textarea id="jianpuSequence" rows="2" spellcheck="false" placeholder="例如：12345 5 6 6 5 或粘贴带点数字"></textarea>
       <div class="btn-row">
-        <label for="jianpuTempo">速度 BPM</label><input id="jianpuTempo" type="number" min="20" max="300" value="120" style="width:90px">
         <button type="button" class="btn btn-primary" onclick="appendJianpu()">追加这段简谱</button>
       </div>
       <p id="jianpuStatus" class="default-timbre-help" role="status" aria-live="polite"></p>
@@ -1101,6 +1113,65 @@ function setPitchDisplayMode(mode) {
   renderTable();
 }
 
+// ─── Tempo-based duration editing ───
+let composerBpm = 120;
+function durationStep() {
+  return Number((15 / composerBpm).toPrecision(12));
+}
+function setComposerBpm(value) {
+  const bpm = Number(value);
+  const input = document.getElementById('jianpuTempo');
+  const status = document.getElementById('tempoStatus');
+  if (!Number.isFinite(bpm) || bpm < 20 || bpm > 300) {
+    input.value = String(composerBpm);
+    status.textContent = 'BPM 请输入 20–300 之间的数值，已保留原设置。';
+    return false;
+  }
+  const changed = bpm !== composerBpm;
+  composerBpm = bpm;
+  input.value = String(bpm);
+  const step = durationStep();
+  let adjusted = 0;
+  if (changed) {
+    for (const note of notes) {
+      if (String(note.dur).trim() !== '' && Number.isFinite(Number(note.dur)) && Number(note.dur) < step) {
+        note.dur = String(step);
+        adjusted++;
+      }
+    }
+  }
+  document.getElementById('durationGridValue').textContent = String(step);
+  status.textContent = adjusted ? '已将 ' + adjusted + ' 个过短音符的持续时间补到 ' + step + ' 秒。' : '';
+  renderTable();
+  return true;
+}
+function commitDuration(i, input) {
+  if (!notes[i]) return;
+  const raw = input.value.trim();
+  const value = Number(raw);
+  const duration = raw === '' || !Number.isFinite(value) ? '' : String(Math.max(durationStep(), value));
+  input.value = duration;
+  onInput(i, 'dur', duration);
+}
+function stepDuration(i, direction) {
+  if (!notes[i] || ![1, -1].includes(direction)) return;
+  const step = durationStep();
+  const current = Number(notes[i].dur);
+  const next = Math.max(step, Number(((Number.isFinite(current) ? current : 0) + direction * step).toFixed(12)));
+  const input = document.getElementById('noteDur' + i);
+  input.value = String(next);
+  onInput(i, 'dur', String(next));
+}
+function durationKey(i, event) {
+  if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+    event.preventDefault();
+    stepDuration(i, event.key === 'ArrowUp' ? 1 : -1);
+  } else if (event.key === 'Enter') {
+    event.preventDefault();
+    commitDuration(i, event.target);
+  }
+}
+
 // ─── Table management ───
 function addRow(freq = '', start = '', dur = '') {
   notes.push({ freq, start, dur, timbre: waveType });
@@ -1159,7 +1230,13 @@ function renderTable() {
       <td class="note-number">${i + 1}</td>
       <td><input id="noteFreq${i}" aria-label="音符${i + 1}${pitchDisplayMode === 'jianpu' ? '简谱' : pitchDisplayMode === 'note' ? '音名' : '频率'}" aria-describedby="pitchInputHelp pitchError${i}" aria-invalid="${pitchError(n)}" type="text" autocomplete="off" spellcheck="false" placeholder="${pitchDisplayMode === 'jianpu' ? '1 / 1̇ / 1̣' : pitchDisplayMode === 'note' ? 'A4' : '440 / A4'}" value="${escapePitchAttribute(n._pitchDraft ?? pitchDisplayValue(n.freq))}" title="${escapePitchAttribute(n.freq ? n.freq + ' Hz · ' + nearestNoteName(n.freq) : '')}" oninput="onPitchInput(${i},this.value)" onblur="commitPitchInput(${i},this)" onkeydown="if(event.key === 'Enter'){event.preventDefault();commitPitchInput(${i},this)}"><span id="pitchError${i}" class="pitch-error" aria-live="polite">${pitchError(n) ? pitchInputErrorText() : ''}</span></td>
       <td><input aria-label="音符${i + 1}开始时间" type="number" step="any" min="0" placeholder="0.0" value="${n.start}" oninput="onInput(${i},'start',this.value)"></td>
-      <td><input aria-label="音符${i + 1}持续时间" type="number" step="any" min="0.01" placeholder="0.5" value="${n.dur}" oninput="onInput(${i},'dur',this.value)"></td>
+      <td><div class="duration-control">
+        <input id="noteDur${i}" class="duration-input" aria-label="音符${i + 1}持续时间" aria-describedby="durationGridHelp" type="number" step="${durationStep()}" min="${durationStep()}" placeholder="${durationStep()}" value="${n.dur}" oninput="onInput(${i},'dur',this.value)" onblur="commitDuration(${i},this)" onkeydown="durationKey(${i},event)">
+        <div class="duration-buttons">
+          <button type="button" aria-label="增加音符${i + 1}持续时间四分之一拍" title="增加 1/4 拍" onclick="stepDuration(${i},1)">▲</button>
+          <button type="button" aria-label="减少音符${i + 1}持续时间四分之一拍" title="减少 1/4 拍" onclick="stepDuration(${i},-1)">▼</button>
+        </div>
+      </div></td>
       <td><select aria-label="音符${i + 1}音色" onchange="onInput(${i},'timbre',this.value)">
         ${Object.entries(TIMBRE_LABELS).map(([key, label]) => `<option value="${key}"${resolveNoteTimbre(n, waveType) === key ? ' selected' : ''}>${label}</option>`).join('')}
       </select></td>
