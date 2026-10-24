@@ -97,8 +97,11 @@ h1 {
 }
 
 .note-table input[aria-invalid="true"] { border-color: #ff6b6b; }
-#pitchDisplayMode { background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 8px 10px; font-size: 14px; }
+#pitchDisplayMode, #jianpuKey { background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 8px 10px; font-size: 14px; }
 #pitchDisplayMode:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
+.jianpu-copy-grid { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; margin: 16px 0; }
+.jianpu-copy-grid input { min-width: 0; width: 100%; background: #0f172a; color: #e2e8f0; padding: 12px 8px; border: 1px solid #334155; border-radius: 6px; font-size: 22px; line-height: 1.8; }
+#jianpuSequence { min-height: 80px; font-size: 22px; line-height: 1.8; }
 .pitch-error { display: block; color: #ff9090; font-size: 12px; max-width: 230px; }
 
 .note-table input::placeholder {
@@ -593,7 +596,42 @@ h1 {
       <select id="pitchDisplayMode" onchange="setPitchDisplayMode(this.value)">
         <option value="frequency">频率（Hz）</option>
         <option value="note">音名</option>
+        <option value="jianpu">新手简谱（1–7）</option>
       </select>
+    </div>
+    <div id="jianpuPanel" hidden>
+      <div class="btn-row">
+        <label for="jianpuKey">大调（中央音区的 1）</label>
+        <select id="jianpuKey" onchange="setJianpuKey(this.value)">
+          <option value="0">1 = C4</option>
+          <option value="1">1 = C#4 / Db4</option>
+          <option value="2">1 = D4</option>
+          <option value="3">1 = D#4 / Eb4</option>
+          <option value="4">1 = E4</option>
+          <option value="5">1 = F4</option>
+          <option value="6">1 = F#4 / Gb4</option>
+          <option value="7">1 = G4</option>
+          <option value="8">1 = G#4 / Ab4</option>
+          <option value="9">1 = A4</option>
+          <option value="10">1 = A#4 / Bb4</option>
+          <option value="11">1 = B4</option>
+        </select>
+      </div>
+      <p class="default-timbre-help">1–7 对应 do re mi fa sol la si。上点升一个八度，下点降一个八度，双点升降两个八度；也可用 1'、1, 输入。选调用于新输入和简谱显示，已有音高保留。每格一个音符，连续旋律用下方快速编曲框。</p>
+      <div class="jianpu-copy-grid">
+        <label for="jianpuCopy0">低两组</label><input id="jianpuCopy0" type="text" readonly aria-label="低两组简谱复制框" value="1̤ 2̤ 3̤ 4̤ 5̤ 6̤ 7̤" ><button type="button" class="btn btn-secondary" onclick="copyJianpuRow('jianpuCopy0')">复制</button>
+        <label for="jianpuCopy1">低音</label><input id="jianpuCopy1" type="text" readonly aria-label="低音简谱复制框" value="1̣ 2̣ 3̣ 4̣ 5̣ 6̣ 7̣" ><button type="button" class="btn btn-secondary" onclick="copyJianpuRow('jianpuCopy1')">复制</button>
+        <label for="jianpuCopy2">中音</label><input id="jianpuCopy2" type="text" readonly aria-label="中音简谱复制框" value="1 2 3 4 5 6 7" ><button type="button" class="btn btn-secondary" onclick="copyJianpuRow('jianpuCopy2')">复制</button>
+        <label for="jianpuCopy3">高音</label><input id="jianpuCopy3" type="text" readonly aria-label="高音简谱复制框" value="1̇ 2̇ 3̇ 4̇ 5̇ 6̇ 7̇" ><button type="button" class="btn btn-secondary" onclick="copyJianpuRow('jianpuCopy3')">复制</button>
+        <label for="jianpuCopy4">高两组</label><input id="jianpuCopy4" type="text" readonly aria-label="高两组简谱复制框" value="1̈ 2̈ 3̈ 4̈ 5̈ 6̈ 7̈" ><button type="button" class="btn btn-secondary" onclick="copyJianpuRow('jianpuCopy4')">复制</button>
+      </div>
+      <label for="jianpuSequence">快速编曲（每个数字一拍，追加到末尾）</label>
+      <textarea id="jianpuSequence" rows="2" spellcheck="false" placeholder="例如：12345 5 6 6 5 或粘贴带点数字"></textarea>
+      <div class="btn-row">
+        <label for="jianpuTempo">速度 BPM</label><input id="jianpuTempo" type="number" min="20" max="300" value="120" style="width:90px">
+        <button type="button" class="btn btn-primary" onclick="appendJianpu()">追加这段简谱</button>
+      </div>
+      <p id="jianpuStatus" class="default-timbre-help" role="status" aria-live="polite"></p>
     </div>
     <p id="pitchInputHelp" class="default-timbre-help">两种模式均可输入频率或音名（如 440、A4、C#4、Db4，支持 ♯ / ♭；不写八度默认第 4 组）。按回车或离开输入框后转换显示。以 A4 = 440 Hz、十二平均律换算；音名显示最近半音，切换模式保留实际频率。</p>
     <div style="overflow-x:auto">
@@ -908,11 +946,102 @@ function buildFreqRef() {
   el.innerHTML = html;
 }
 
+// ─── Beginner numbered notation ───
+let jianpuKey = 0;
+const JIANPU_SCALE = [0, 2, 4, 5, 7, 9, 11];
+function jianpuSymbol(degree, octave = 0, accidental = '') {
+  const marks = octave === 1 ? '\u0307' : octave === 2 ? '\u0308' : octave === -1 ? '\u0323' : octave === -2 ? '\u0324' : (octave > 0 ? "'" : ',').repeat(Math.abs(octave));
+  return accidental + degree + marks;
+}
+function parseJianpu(value) {
+  const match = /^([#♯b♭]?)([1-7])([\u0307\u0308\u0323\u0324'’,]*)$/.exec(String(value).trim());
+  if (!match) return null;
+  let up = 0, down = 0;
+  for (const mark of match[3]) {
+    if (mark === '\u0308') up += 2;
+    else if (mark === '\u0324') down += 2;
+    else if (mark === '\u0307' || mark === "'" || mark === '’') up++;
+    else down++;
+  }
+  if ((up && down) || up + down > 8) return null;
+  const accidental = /[#♯]/.test(match[1]) ? 1 : /[b♭]/.test(match[1]) ? -1 : 0;
+  return 440 * 2 ** ((60 + jianpuKey + JIANPU_SCALE[Number(match[2]) - 1] + accidental + 12 * (up - down) - 69) / 12);
+}
+function nearestJianpu(freq) {
+  if (!(Number(freq) > 0) || !Number.isFinite(Number(freq))) return '';
+  const midi = Math.round(69 + 12 * (Math.log2(Number(freq)) - Math.log2(440)));
+  const relative = midi - 60 - jianpuKey;
+  const octave = Math.floor(relative / 12);
+  if (Math.abs(octave) > 8) return nearestNoteName(freq);
+  const pitch = ((relative % 12) + 12) % 12;
+  let degree = JIANPU_SCALE.indexOf(pitch);
+  const sharp = degree < 0;
+  if (sharp) degree = JIANPU_SCALE.indexOf(pitch - 1);
+  return jianpuSymbol(degree + 1, octave, sharp ? '#' : '');
+}
+function pitchInputErrorText() {
+  return pitchDisplayMode === 'jianpu' ? '每格填一个简谱音符，如 1、1̇、1̣；连续数字请用上方快速编曲框' : '请输入正数频率或音名，如 A4、C#4、Db4';
+}
+function setJianpuKey(value) {
+  const key = Number(value);
+  if (!Number.isInteger(key) || key < 0 || key > 11) return;
+  notes.forEach(note => { if (!pitchError(note)) { delete note._pitchDraft; delete note._pitchInvalid; } });
+  jianpuKey = key;
+  document.getElementById('jianpuKey').value = String(key);
+  renderTable();
+}
+async function copyJianpuRow(id) {
+  const input = document.getElementById(id);
+  const status = document.getElementById('jianpuStatus');
+  try {
+    await navigator.clipboard.writeText(input.value);
+    status.textContent = '已复制，可以粘贴到快速编曲框或音高栏。';
+  } catch {
+    input.focus();
+    input.select();
+    status.textContent = '请按 Ctrl+C（手机长按）复制已选中的数字。';
+  }
+}
+function appendJianpu() {
+  const status = document.getElementById('jianpuStatus');
+  const text = document.getElementById('jianpuSequence').value.trim();
+  if (!text) { status.textContent = '请先输入旋律，如 123455。'; return; }
+  const bpm = Number(document.getElementById('jianpuTempo').value);
+  if (!Number.isFinite(bpm) || bpm < 20 || bpm > 300) { status.textContent = '速度请填写 20–300 BPM。'; return; }
+  const frequencies = [];
+  const token = /([#♯b♭]?[1-7][\u0307\u0308\u0323\u0324'’,]*)/y;
+  for (let i = 0; i < text.length;) {
+    if (/[\s|]/.test(text[i])) { i++; continue; }
+    token.lastIndex = i;
+    const match = token.exec(text);
+    const freq = match && parseJianpu(match[0]);
+    if (freq === null || !match) { status.textContent = '简谱格式不正确：用 1–7、上下点或半角撇号 / 逗号；空格和 | 可分隔。'; return; }
+    frequencies.push(freq);
+    if (frequencies.length > 512) { status.textContent = '一次最多追加 512 个音符，请分段输入。'; return; }
+    i = token.lastIndex;
+  }
+  if (!frequencies.length) { status.textContent = '请先输入 1–7 的旋律数字。'; return; }
+  const start = notes.reduce((end, note) => {
+    const time = Number(note.start) + Number(note.dur);
+    return Number.isFinite(time) ? Math.max(end, time) : end;
+  }, 0);
+  const beat = 60 / bpm;
+  const newNotes = frequencies.map((freq, i) => ({ freq: String(freq), start: String(start + i * beat), dur: String(beat), timbre: waveType }));
+  notes.push(...newNotes);
+  renderTable();
+  status.textContent = '已在末尾追加 ' + frequencies.length + ' 个音符，每个音符一拍。';
+}
+
 // ─── Pitch input / display ───
 let pitchDisplayMode = 'frequency';
 function parsePitch(value) {
   const text = String(value).trim();
   if (!text) return '';
+  if (pitchDisplayMode === 'jianpu') {
+    const numbered = parseJianpu(text);
+    if (numbered !== null) return numbered;
+    if (/^[\d+#♯b♭.,'’\u0307\u0308\u0323\u0324]/.test(text) && !/hz$/i.test(text)) return null;
+  }
   if (/^[+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?\s*(?:hz)?$/i.test(text)) {
     const freq = Number(text.replace(/\s*hz$/i, ''));
     return Number.isFinite(freq) && freq > 0 ? freq : null;
@@ -932,39 +1061,43 @@ function nearestNoteName(freq) {
 }
 function pitchDisplayValue(freq) {
   if (freq === '' || freq === null || freq === undefined) return '';
-  return pitchDisplayMode === 'note' ? nearestNoteName(freq) : String(Number(freq));
+  return pitchDisplayMode === 'jianpu' ? nearestJianpu(freq) : pitchDisplayMode === 'note' ? nearestNoteName(freq) : String(Number(freq));
 }
 function pitchLabel(freq) {
-  return pitchDisplayMode === 'note' ? nearestNoteName(freq) : freq + ' Hz';
+  return pitchDisplayMode === 'jianpu' ? nearestJianpu(freq) : pitchDisplayMode === 'note' ? nearestNoteName(freq) : freq + ' Hz';
 }
 function escapePitchAttribute(value) {
   return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 }
 function pitchError(note) {
-  return note._pitchDraft !== undefined && parsePitch(note._pitchDraft) === null;
+  return note._pitchDraft !== undefined && (note._pitchInvalid ?? parsePitch(note._pitchDraft) === null);
 }
 function onPitchInput(i, value) {
   const freq = parsePitch(value);
   notes[i]._pitchDraft = value;
+  notes[i]._pitchInvalid = freq === null;
   onInput(i, 'freq', freq === null ? '' : String(freq));
   const input = document.getElementById('noteFreq' + i);
   input.setAttribute('aria-invalid', String(freq === null));
-  document.getElementById('pitchError' + i).textContent = freq === null ? '请输入正数频率或音名，如 A4、C#4、Db4' : '';
+  document.getElementById('pitchError' + i).textContent = freq === null ? pitchInputErrorText() : '';
 }
 function commitPitchInput(i, input) {
   const note = notes[i];
   if (!note || pitchError(note)) return;
   delete note._pitchDraft;
+  delete note._pitchInvalid;
   input.value = pitchDisplayValue(note.freq);
   input.title = note.freq ? note.freq + ' Hz · ' + nearestNoteName(note.freq) : '';
 }
 function setPitchDisplayMode(mode) {
-  if (!['frequency', 'note'].includes(mode)) return;
+  if (!['frequency', 'note', 'jianpu'].includes(mode)) return;
+  // Resolve drafts using the previous mode before changing interpretation.
+  notes.forEach(note => { if (!pitchError(note)) { delete note._pitchDraft; delete note._pitchInvalid; } });
   pitchDisplayMode = mode;
-  // Valid drafts are canonical frequencies already; invalid drafts stay visible.
-  notes.forEach(note => { if (!pitchError(note)) delete note._pitchDraft; });
+  document.getElementById('jianpuPanel').hidden = mode !== 'jianpu';
+  document.getElementById('pitchInputHelp').hidden = mode === 'jianpu';
   document.getElementById('pitchDisplayMode').value = mode;
-  document.getElementById('pitchColumnTitle').textContent = mode === 'note' ? '音名（最近半音）' : '频率 Hz';
+  document.getElementById('pitchColumnTitle').textContent = mode === 'jianpu' ? '简谱' : mode === 'note' ? '音名（最近半音）' : '频率 Hz';
   renderTable();
 }
 
@@ -1024,7 +1157,7 @@ function renderTable() {
   tbody.innerHTML = notes.map((n, i) => `
     <tr id="noteRow${i}" class="${n === selectedTimelineNote ? 'note-selected' : ''}" aria-current="${n === selectedTimelineNote}">
       <td class="note-number">${i + 1}</td>
-      <td><input id="noteFreq${i}" aria-label="音符${i + 1}${pitchDisplayMode === 'note' ? '音名' : '频率'}" aria-describedby="pitchInputHelp pitchError${i}" aria-invalid="${pitchError(n)}" type="text" autocomplete="off" spellcheck="false" placeholder="${pitchDisplayMode === 'note' ? 'A4' : '440 / A4'}" value="${escapePitchAttribute(n._pitchDraft ?? pitchDisplayValue(n.freq))}" title="${escapePitchAttribute(n.freq ? n.freq + ' Hz · ' + nearestNoteName(n.freq) : '')}" oninput="onPitchInput(${i},this.value)" onblur="commitPitchInput(${i},this)" onkeydown="if(event.key === 'Enter'){event.preventDefault();commitPitchInput(${i},this)}"><span id="pitchError${i}" class="pitch-error" aria-live="polite">${pitchError(n) ? '请输入正数频率或音名，如 A4、C#4、Db4' : ''}</span></td>
+      <td><input id="noteFreq${i}" aria-label="音符${i + 1}${pitchDisplayMode === 'jianpu' ? '简谱' : pitchDisplayMode === 'note' ? '音名' : '频率'}" aria-describedby="pitchInputHelp pitchError${i}" aria-invalid="${pitchError(n)}" type="text" autocomplete="off" spellcheck="false" placeholder="${pitchDisplayMode === 'jianpu' ? '1 / 1̇ / 1̣' : pitchDisplayMode === 'note' ? 'A4' : '440 / A4'}" value="${escapePitchAttribute(n._pitchDraft ?? pitchDisplayValue(n.freq))}" title="${escapePitchAttribute(n.freq ? n.freq + ' Hz · ' + nearestNoteName(n.freq) : '')}" oninput="onPitchInput(${i},this.value)" onblur="commitPitchInput(${i},this)" onkeydown="if(event.key === 'Enter'){event.preventDefault();commitPitchInput(${i},this)}"><span id="pitchError${i}" class="pitch-error" aria-live="polite">${pitchError(n) ? pitchInputErrorText() : ''}</span></td>
       <td><input aria-label="音符${i + 1}开始时间" type="number" step="any" min="0" placeholder="0.0" value="${n.start}" oninput="onInput(${i},'start',this.value)"></td>
       <td><input aria-label="音符${i + 1}持续时间" type="number" step="any" min="0.01" placeholder="0.5" value="${n.dur}" oninput="onInput(${i},'dur',this.value)"></td>
       <td><select aria-label="音符${i + 1}音色" onchange="onInput(${i},'timbre',this.value)">
