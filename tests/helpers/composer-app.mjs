@@ -16,6 +16,7 @@ export function app() {
         value: '', innerHTML: '', textContent: '', style: {}, rectWidth: 1100,
         classList: { add: name => classes.add(name), remove: name => classes.delete(name), contains: name => classes.has(name), toggle(name, force) { if (force ?? !classes.has(name)) classes.add(name); else classes.delete(name); } },
         focus() { this.focused = true; },
+        scrollIntoView(options) { this.scrolledIntoView = options; },
         setAttribute(name, value) { attributes.set(name, value); }, getAttribute: name => attributes.get(name),
         setPointerCapture(pointerId) { this.capturedPointer = pointerId; }, releasePointerCapture() { this.capturedPointer = null; },
         addEventListener(type, fn) { if (!listeners.has(type)) listeners.set(type, []); listeners.get(type).push(fn); },

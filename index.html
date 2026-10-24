@@ -376,6 +376,10 @@ h1 {
 #timelineTime { grid-column: 2; grid-row: 1; text-align: right; }
 .timeline-controls button:disabled { opacity: 0.4; cursor: default; }
 .timeline-readout { color: #7dd3fc; font: 12px monospace; font-variant-numeric: tabular-nums; }
+.note-number { color: #475569; font-size: 13px; text-align: center; }
+.note-selected td { background: #facc1514; border-top: 1px solid #facc15; border-bottom: 1px solid #facc15; }
+.note-selected .note-number { color: #facc15; font-weight: 700; }
+#timelineSelection { color: #facc15; }
 
 /* Volume / BPM controls */
 .controls-row {
@@ -627,6 +631,7 @@ h1 {
       <span id="timelineVisibleRange" class="timeline-readout">0.00–0.00 秒</span>
     </div>
     <canvas id="timeline" tabindex="0" role="slider" aria-label="时间线播放位置" aria-describedby="timelineHelp" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-disabled="true"></canvas>
+    <div class="timeline-controls timeline-progress"><span id="timelineSelection" role="status" aria-live="polite">点击音符可定位到对应编号</span><button id="timelineLocate" type="button" class="btn btn-secondary" onclick="revealTimelineNote()" disabled>定位到音符行</button></div>
     <div class="timeline-controls timeline-progress">
       <div class="waveform-control">
         <label for="timelineSeek">播放进度</label>
@@ -638,7 +643,7 @@ h1 {
         <input id="timelinePan" type="range" min="0" max="1000" step="1" value="0" disabled>
       </div>
     </div>
-    <p id="timelineHelp" class="waveform-help">默认按音符长度自动缩放，长曲分段显示；拖动“查看位置”浏览，播放时自动跟随。点击时间线，或拖动进度线 / 播放进度条后松手，即可从该位置播放。按住 Ctrl / ⌘ 滚轮缩放；时间线获得焦点时，← → 跳转 1 秒，Shift + ← → 跳转 10 秒，空格暂停 / 继续。</p>
+    <p id="timelineHelp" class="waveform-help">音符块中的数字对应上方列表编号。点击音符会暂停并定位到对应行；重复点击重叠音符可轮流选择。点击空白处，或拖动时间线 / 播放进度条后松手，从该位置播放。默认按音符长度自动缩放，长曲分段显示；拖动“查看位置”浏览。Ctrl / ⌘ + 滚轮缩放；时间线获得焦点时，← → 跳转 1 秒，Shift + ← → 跳转 10 秒，空格暂停 / 继续。</p>
   </div>
 
   <!-- JSON Editor -->
@@ -715,6 +720,8 @@ let timelineWindowStart = 0;
 let timelinePosition = 0;
 let timelineDrag = null;
 let timelineScrub = null;
+let selectedTimelineNote = null;
+let timelineNoteRects = [];
 const TIMELINE_PAD = { l: 55, r: 15, t: 15, b: 30 };
 let importedAudioBuffer = null;
 let importedAudioUrl = null;
@@ -933,10 +940,11 @@ function onInput(i, field, val) {
 
 function renderTable() {
   if (workbenchPlayback || playbackPending) stopMelody(false);
+  if (!notes.includes(selectedTimelineNote)) selectedTimelineNote = null;
   const tbody = document.getElementById('noteBody');
   tbody.innerHTML = notes.map((n, i) => `
-    <tr>
-      <td style="color:#475569;font-size:13px;text-align:center">${i + 1}</td>
+    <tr id="noteRow${i}" class="${n === selectedTimelineNote ? 'note-selected' : ''}" aria-current="${n === selectedTimelineNote}">
+      <td class="note-number">${i + 1}</td>
       <td><input id="noteFreq${i}" aria-label="音符${i + 1}频率" type="number" step="any" min="20" max="20000" placeholder="440" value="${n.freq}" oninput="onInput(${i},'freq',this.value)"></td>
       <td><input aria-label="音符${i + 1}开始时间" type="number" step="any" min="0" placeholder="0.0" value="${n.start}" oninput="onInput(${i},'start',this.value)"></td>
       <td><input aria-label="音符${i + 1}持续时间" type="number" step="any" min="0.01" placeholder="0.5" value="${n.dur}" oninput="onInput(${i},'dur',this.value)"></td>
@@ -973,9 +981,10 @@ document.getElementById('volumeSlider').addEventListener('input', e => {
 });
 
 // ─── Parse notes ───
-function getValidNotes() {
+function getValidNotes(includeIndex = false) {
   return notes
-    .map(n => ({
+    .map((n, index) => ({
+      ...(includeIndex ? { index } : {}),
       freq: parseFloat(n.freq),
       start: parseFloat(n.start),
       dur: parseFloat(n.dur),
@@ -1609,7 +1618,13 @@ function updateTimelineControls(view) {
 
 function drawTimeline() {
   const canvas = document.getElementById('timeline');
-  const valid = getValidNotes();
+  const valid = getValidNotes(true);
+  timelineNoteRects = [];
+  const selectedIndex = notes.indexOf(selectedTimelineNote);
+  const selectionText = selectedIndex < 0 ? '点击音符可定位到对应编号' : `已选中第 ${selectedIndex + 1} 个音符 · ${selectedTimelineNote.freq} Hz · 开始 ${selectedTimelineNote.start} 秒`;
+  const selection = document.getElementById('timelineSelection');
+  if (selection.textContent !== selectionText) selection.textContent = selectionText;
+  document.getElementById('timelineLocate').disabled = selectedIndex < 0;
   const view = timelineView(valid);
   const dpr = Math.min(3, window.devicePixelRatio || 1);
   const pixelWidth = Math.round(view.width * dpr), pixelHeight = Math.round(view.height * dpr);
@@ -1654,14 +1669,24 @@ function drawTimeline() {
   ctx.save();
   ctx.beginPath(); ctx.rect(pad.l, 0, w, pad.t + h); ctx.clip();
   const colors = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#f97316'];
-  valid.forEach((n, i) => {
+  // Draw the selected note last so it stays visible when several notes overlap.
+  const ordered = [...valid.filter(n => n.index !== selectedIndex), ...valid.filter(n => n.index === selectedIndex)];
+  ordered.forEach(n => {
     if (n.start + n.dur < view.start || n.start > view.end) return;
     const x = xAt(Math.max(view.start, n.start));
     const endX = xAt(Math.min(view.end, n.start + n.dur));
     const y = pad.t + h - (n.freq - (minFreq - freqRange * 0.1)) / (freqRange * 1.2) * h;
-    const color = colors[i % colors.length];
-    ctx.fillStyle = color + '40'; ctx.strokeStyle = color; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.roundRect(x, y - 10, Math.max(endX - x, 3), 20, 4); ctx.fill(); ctx.stroke();
+    const width = Math.min(Math.max(endX - x, 3), pad.l + w - x);
+    if (width <= 0) return;
+    timelineNoteRects.push({ x, y: y - 10, width, height: 20, index: n.index, note: notes[n.index] });
+    const color = colors[n.index % colors.length];
+    ctx.fillStyle = n.index === selectedIndex ? '#facc1560' : color + '40';
+    ctx.strokeStyle = n.index === selectedIndex ? '#facc15' : color; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(x, y - 10, width, 20, 4); ctx.fill(); ctx.stroke();
+    if (width >= 16) {
+      ctx.fillStyle = '#f8fafc'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'left';
+      ctx.fillText(String(n.index + 1), x + 3, y + 4, Math.max(1, width - 5));
+    }
     if (endX - x >= 34) {
       ctx.fillStyle = color; ctx.font = '10px monospace'; ctx.textAlign = 'left';
       ctx.fillText(n.freq + 'Hz', x + 3, y - 14, Math.max(1, endX - x - 4));
@@ -1710,6 +1735,40 @@ function timelinePointerTime(event, view, rect) {
   return view.start + fraction * view.visible;
 }
 
+function timelineNotesAt(event, rect) {
+  if (!Number.isFinite(event.clientY)) return [];
+  const x = event.clientX - rect.left;
+  const y = (event.clientY - rect.top) * 180 / rect.height;
+  return timelineNoteRects.filter(n => x >= n.x && x <= n.x + n.width && y >= n.y && y <= n.y + n.height)
+    .sort((a, b) => b.index - a.index);
+}
+
+function revealTimelineNote() {
+  const index = notes.indexOf(selectedTimelineNote);
+  if (index < 0) return;
+  document.getElementById(`noteRow${index}`).scrollIntoView({ block: 'center', inline: 'start' });
+  document.getElementById(`noteFreq${index}`).focus({ preventScroll: true });
+}
+
+function selectTimelineNote(note) {
+  const index = notes.indexOf(note);
+  if (index < 0) return;
+  const previous = notes.indexOf(selectedTimelineNote);
+  if (previous >= 0) {
+    document.getElementById(`noteRow${previous}`).classList.remove('note-selected');
+    document.getElementById(`noteRow${previous}`).setAttribute('aria-current', 'false');
+  }
+  selectedTimelineNote = note;
+  document.getElementById(`noteRow${index}`).classList.add('note-selected');
+  document.getElementById(`noteRow${index}`).setAttribute('aria-current', 'true');
+  previewTimelineSeek(Number(note.start));
+  revealTimelineNote();
+}
+
+function timelinePointerMoved(event, drag) {
+  return Math.hypot(event.clientX - drag.x, (event.clientY ?? drag.y) - drag.y) > 5;
+}
+
 const timelineCanvas = document.getElementById('timeline');
 timelineCanvas.addEventListener('pointerdown', event => {
   if (event.button !== 0 || event.isPrimary === false || timelineDrag) return;
@@ -1718,16 +1777,36 @@ timelineCanvas.addEventListener('pointerdown', event => {
   event.preventDefault();
   timelineCanvas.focus();
   timelineCanvas.setPointerCapture(event.pointerId);
+  const rect = timelineCanvas.getBoundingClientRect();
+  const hits = timelineNotesAt(event, rect);
+  const previous = hits.findIndex(n => n.note === selectedTimelineNote);
+  const hit = hits.length ? hits[(previous + 1) % hits.length] : null;
   beginTimelineScrub();
-  timelineDrag = { id: event.pointerId, view, rect: timelineCanvas.getBoundingClientRect() };
-  previewTimelineSeek(timelinePointerTime(event, view, timelineDrag.rect), false);
+  timelineDrag = { id: event.pointerId, view, rect, note: hit?.note, x: event.clientX, y: event.clientY ?? 0 };
+  if (!hit) previewTimelineSeek(timelinePointerTime(event, view, rect), false);
 });
 timelineCanvas.addEventListener('pointermove', event => {
-  if (!timelineDrag || event.pointerId !== timelineDrag.id) return;
+  if (!timelineDrag) {
+    const hits = timelineNotesAt(event, timelineCanvas.getBoundingClientRect());
+    timelineCanvas.title = hits.length ? hits.map(n => `第 ${n.index + 1} 个音符 · ${n.note.freq} Hz`).join(' / ') : '点击空白处跳转播放';
+    timelineCanvas.style.cursor = hits.length ? 'pointer' : 'crosshair';
+    return;
+  }
+  if (event.pointerId !== timelineDrag.id) return;
+  if (timelineDrag.note && !timelinePointerMoved(event, timelineDrag)) return;
+  timelineDrag.note = null;
   previewTimelineSeek(timelinePointerTime(event, timelineDrag.view, timelineDrag.rect), false);
 });
 timelineCanvas.addEventListener('pointerup', event => {
   if (!timelineDrag || event.pointerId !== timelineDrag.id) return;
+  const note = timelineDrag.note && !timelinePointerMoved(event, timelineDrag) ? timelineDrag.note : null;
+  if (note) {
+    timelineDrag = null;
+    timelineScrub = null;
+    timelineCanvas.releasePointerCapture(event.pointerId);
+    selectTimelineNote(note);
+    return;
+  }
   previewTimelineSeek(timelinePointerTime(event, timelineDrag.view, timelineDrag.rect), false);
   timelineDrag = null;
   timelineCanvas.releasePointerCapture(event.pointerId);
