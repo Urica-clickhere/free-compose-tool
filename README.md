@@ -121,3 +121,13 @@ FORUM_BASE_URL=https://your-deployment.vercel.app TEST_ACCOUNTS_FILE=./work/test
 ## License
 
 MIT
+
+## 本地简谱图片识别（试用）
+
+`npm run build` 构建 Dolce 浏览器识别模块，连同 OCR 模型和 ONNX WASM 一起输出到 `public/omr`。`npm run dev` 前先运行构建。模型同站点提供，不依赖第三方 CDN 或付费 API；识别在用户浏览器执行，首次加载约 40 MB。上游版本及许可证见 `vendor/dolce/README.md`。
+
+支持单旋律印刷 PNG/JPEG/WebP、音级/八度/升降、减时线、附点、增时线、休止及可精确表示的连音时值。每四分音符 6720 tick；先按小节校验并逐小节人工确认，再转换现有 `freq/start/dur/timbre` 数组。小节总长相等不能证明每音正确；没有声明任何节奏识别准确率或零错误保证。可补入/删除音符、修改时值；弱起/末尾不完全小节可显式设置目标长度。漏识小节线应重新裁图识别。
+
+目前发现反复、房号、跳转、跨音延音、变拍、倚音、延长记号、装饰音、多声部或小调标记时阻止导入。请先在专业乐谱编辑器中展开/处理这些内容。未检测到的符号仍需人工对照完整原图检查。替换编曲前可用原有 JSON 导出保存现有作品。
+
+测试：`npm test`。`tests/fixtures/omr-four-quarters.png` 是自行生成的四个四分音符测试谱，不是准确率基准；真实扫描谱仍需更多样本验证。
