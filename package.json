@@ -8,18 +8,22 @@
   },
   "scripts": {
     "dev": "node --env-file-if-exists=.env.local scripts/dev.mjs",
-    "build": "node scripts/build.mjs",
+    "build": "node scripts/prepare-omr.mjs && node scripts/build.mjs && vite build --config vite.omr.config.js",
     "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:integration": "node --env-file-if-exists=.env.local --test tests/integration.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
+    "@tauri-apps/api": "2.12.4",
     "better-auth": "^1.7.12",
     "ipaddr.js": "^2.5.0",
+    "onnxruntime-web": "1.30.0",
+    "opencc-js": "1.4.2",
     "pg": "^8.23.1"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.11"
+    "@electric-sql/pglite": "^0.5.11",
+    "vite": "6.4.4"
   }
 }

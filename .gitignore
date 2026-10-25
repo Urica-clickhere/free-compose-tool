@@ -4,3 +4,7 @@ node_modules/
 .vercel/
 work/
 public/
+
+.omr-cache/
+vendor/dolce/src/
+omr-assets/
