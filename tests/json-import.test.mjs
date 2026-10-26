@@ -1,8 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { app } from './helpers/composer-app.mjs';
+import {fromRecognition,toNotes} from '../rhythm-model.js';
 
 const score = [{ freq: 440, start: 0, dur: 0.5, timbre: 'guitar' }];
+test('recognized tied rhythm survives workbench and JSON file round trip',async()=>{
+  const nums=[1,1,2,3].map((digit,i)=>({digit,octave:0,div:0,dot:0,augment:0,bbox:{x:20+i*50,y:90,w:20,h:30},tieStart:i===0,tieStop:i===1}));
+  const model=fromRecognition({key:'C',tempo:60,beats:4,beatType:4,rows:[{nums,barlineXs:[400]}]});
+  model.headerConfirmed=true;model.measures[0].confirmed=true;
+  const notes=toNotes(model), a=app();
+  a.run(`window.ComposerForum.import(${JSON.stringify(notes)})`);
+  const json=a.el('jsonEditor').value;
+  assert.deepEqual(JSON.parse(json).map(n=>[n.start,n.dur]),[[0,2],[2,1],[3,1]]);
+  await choose(a,json,'tied-melody.json');
+  assert.deepEqual(JSON.parse(a.el('jsonEditor').value),notes);
+  assert.match(a.el('jsonImportStatus').textContent,/已导入.*3 个音符/);
+});
 function choose(a, text, name = 'melody.json') {
   const file = new Blob([text], { type: 'application/json' });
   file.name = name;
