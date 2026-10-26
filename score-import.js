@@ -24,7 +24,8 @@ function crop(m) {
 function render() {
  const area=$('omrReview');area.replaceChildren();const header=document.createElement('div');header.className='btn-row';
  for(const [label,key,type] of [['调号（1=C）','key','text'],['速度（四分音符/分钟）','bpm','number'],['拍号分子','beats','number'],['拍号分母','beatType','number']])header.append(field(label,model[key],v=>{model[key]=v;model.headerConfirmed=false;model.measures.forEach(m=>m.confirmed=false);render();},type));
- area.append(header,checkbox('我已对照原谱确认调号、速度、拍号；这是单旋律谱，且无未处理的反复、延音线、变拍或变速。',model.headerConfirmed,v=>{model.headerConfirmed=v;refresh();}));
+ area.append(header,checkbox('我已对照原谱确认调号、速度、拍号；这是单旋律谱，且无未处理的反复、变拍或变速。',model.headerConfirmed,v=>{model.headerConfirmed=v;refresh();}));
+ const tieHelp=document.createElement('p');tieHelp.textContent='同音延音线会将相连音符合并为一次持续发声，支持跨小节、跨行。请核对两端的连接标记；连续延音的中间音符需同时勾选两项。增时横线已计入时值。';area.append(tieHelp);
  const source=document.createElement('details');const summary=document.createElement('summary');summary.textContent='查看完整原图（核对页眉、小节线及漏识的音符）';source.append(summary,crop({events:[{bbox:{x:35,y:75,w:Math.max(1,bin.w-135),h:Math.max(1,bin.h-140)}}]}));area.append(source);
  model.measures.forEach((m,i)=>{
   const box=document.createElement('fieldset');box.style.margin='16px 0';const legend=document.createElement('legend');legend.textContent=`第 ${i+1} 小节 · ${m.events.reduce((s,e)=>s+e.durationTicks,0)/PPQ} / ${(m.expectedTicks ?? model.beats*4/model.beatType*PPQ)/PPQ} 拍`;box.append(legend,crop(m));
@@ -32,12 +33,13 @@ function render() {
   m.events.forEach((e,j)=>{const row=document.createElement('div');row.className='btn-row';
    row.append(document.createTextNode(`${j+1}. `),field('音级（0休止）',e.degree,v=>{e.degree=v;edit();}),field('八度',e.octave,v=>{e.octave=v;edit();}),field('时值（四分音符拍）',e.durationTicks/PPQ,v=>{e.durationTicks=v*PPQ;e.invalidDuration=false;edit();}));
    const select=document.createElement('select');select.setAttribute('aria-label','升降号');for(const [v,t] of [['','无标记'],['sharp','升号'],['flat','降号'],['natural','还原号']]){const o=document.createElement('option');o.value=v;o.textContent=t;select.append(o);}select.value=e.accidental;select.onchange=()=>{e.accidental=select.value;edit();};row.append(select);
+   row.append(checkbox('承接前音延音线',!!e.tieStop,v=>{e.tieStop=v;edit();}),checkbox('延音至下一音',!!e.tieStart,v=>{e.tieStart=v;edit();}));
    row.append(button('前插音符',()=>{m.events.splice(j,0,{degree:1,octave:0,accidental:'',durationTicks:PPQ});edit();}),button('删除',()=>{m.events.splice(j,1);edit();}));
    const note=document.createElement('small');note.textContent=e.marks?`减时线 ${e.marks.div} · 附点 ${e.marks.dot} · 增时线 ${e.marks.augment}${e.marks.tuplet?' · 连音比例 '+e.marks.tuplet.normal+'/'+e.marks.tuplet.actual:''}${e.doubt?.length?' · 识别存疑，请核对':''}`:'手动补入';row.append(note);box.append(row);
   });
   box.append(button('末尾补音符',()=>{m.events.push({degree:1,octave:0,accidental:'',durationTicks:PPQ});edit();}));
   if(i===0||i===model.measures.length-1)box.append(field('弱起/末尾不完全小节目标拍数', (m.expectedTicks ?? model.beats*4/model.beatType*PPQ)/PPQ,v=>{m.expectedTicks=v*PPQ;edit();}));
-  box.append(checkbox('我已核对本小节所有时值、休止、音符数量及边界',m.confirmed,v=>{m.confirmed=v;refresh();}));area.append(box);
+  box.append(checkbox('我已核对本小节所有时值、延音线、休止、音符数量及边界',m.confirmed,v=>{m.confirmed=v;refresh();}));area.append(box);
  });
  const problems=document.createElement('p');problems.id='omrProblems';problems.setAttribute('role','status');area.append(problems);
  const apply=button('将已核对曲谱替换到编曲区',()=>{try{const notes=toNotes(model);window.ComposerForum.import(notes);say(`已导入 ${notes.length} 个音符，可在编曲区试听与导出 JSON。`);}catch(e){say(e.message);}});apply.id='omrApply';area.append(apply);refresh();
